@@ -1,0 +1,8 @@
+{
+  "name": "The Academic Architect",
+  "description": "A high-end editorial learning agent tool with a digital library aesthetic.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
