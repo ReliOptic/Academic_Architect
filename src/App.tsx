@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Layout from './components/Layout';
 import ModelSettingsScreen from './components/ModelSettingsScreen';
 import DashboardScreen from './components/DashboardScreen';
@@ -11,11 +11,13 @@ export default function App() {
   const [isStarted, setIsStarted] = useState(() => {
     return localStorage.getItem('architect_started') === 'true';
   });
-  
+
   const [activeTab, setActiveTab] = useState(() => {
     const configured = localStorage.getItem('architect_configured') === 'true';
     return configured ? 'dashboard' : 'model-settings';
   });
+
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   const handleStart = () => {
     setIsStarted(true);
@@ -27,6 +29,11 @@ export default function App() {
     setActiveTab('dashboard');
   };
 
+  const handleSessionStart = (sessionId: string) => {
+    setActiveSessionId(sessionId);
+    setActiveTab('learning');
+  };
+
   if (!isStarted) {
     return <LandingPage onStart={handleStart} />;
   }
@@ -34,10 +41,10 @@ export default function App() {
   const renderScreen = () => {
     switch (activeTab) {
       case 'model-settings': return <ModelSettingsScreen onApply={handleSettingsApplied} />;
-      case 'dashboard': return <DashboardScreen />;
-      case 'learning': return <LearningScreen />;
+      case 'dashboard': return <DashboardScreen onSessionStart={handleSessionStart} />;
+      case 'learning': return <LearningScreen sessionId={activeSessionId} />;
       case 'archive': return <ArchiveScreen />;
-      default: return <DashboardScreen />;
+      default: return <DashboardScreen onSessionStart={handleSessionStart} />;
     }
   };
 
