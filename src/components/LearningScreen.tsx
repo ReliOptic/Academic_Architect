@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Activity,
   ArrowUp,
@@ -79,11 +79,15 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
   const [input, setInput] = useState('');
   const [showSegmentSidebar, setShowSegmentSidebar] = useState(false);
   const [showStatsSidebar, setShowStatsSidebar] = useState(false);
+  const [discussCountdown, setDiscussCountdown] = useState<number | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatHeaderRef = useRef<HTMLHeadingElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const probeStartedRef = useRef(false);
   const challengeStartedRef = useRef(false);
+  const discussTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const discussIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const discussDeadlineRef = useRef<number | null>(null);
 
   // Load session + constellation
   useEffect(() => {
@@ -140,6 +144,56 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
       chatHeaderRef.current?.focus();
     }
   }, [session?.current_segment_index]);
+
+  // Discuss 30초 자동 종료 타이머
+  const clearDiscussTimers = useCallback(() => {
+    if (discussTimerRef.current) { clearTimeout(discussTimerRef.current); discussTimerRef.current = null; }
+    if (discussIntervalRef.current) { clearInterval(discussIntervalRef.current); discussIntervalRef.current = null; }
+    discussDeadlineRef.current = null;
+    setDiscussCountdown(null);
+  }, []);
+
+  const startDiscussTimer = useCallback(() => {
+    clearDiscussTimers();
+    const deadline = Date.now() + 30_000;
+    discussDeadlineRef.current = deadline;
+
+    // Countdown interval — update every second during last 10s
+    discussIntervalRef.current = setInterval(() => {
+      const remaining = Math.ceil((deadline - Date.now()) / 1000);
+      if (remaining <= 10 && remaining > 0) {
+        setDiscussCountdown(remaining);
+      } else if (remaining <= 0) {
+        setDiscussCountdown(null);
+      } else {
+        setDiscussCountdown(null);
+      }
+    }, 1000);
+
+    // Auto-advance at 30s
+    discussTimerRef.current = setTimeout(() => {
+      clearDiscussTimers();
+      advanceSegment();
+    }, 30_000);
+  }, [clearDiscussTimers, advanceSegment]);
+
+  // Start/stop timer based on phase
+  useEffect(() => {
+    if (phase === 'discussing' && !isReviewing && !loading) {
+      startDiscussTimer();
+    } else {
+      clearDiscussTimers();
+    }
+    return () => clearDiscussTimers();
+  }, [phase, isReviewing, loading, startDiscussTimer, clearDiscussTimers]);
+
+  // Reset timer on input change (user typing)
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    if (phase === 'discussing' && !isReviewing && discussDeadlineRef.current) {
+      startDiscussTimer();
+    }
+  };
 
   const handleSend = async () => {
     const text = input.trim();
@@ -542,13 +596,21 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
         <div className="p-8">
           {/* "다음 파트" 버튼 — Discuss / Challenge Feedback 단계 */}
           {!isReviewing && phase === 'discussing' && !loading && (
-            <div className="max-w-3xl mx-auto mb-3 flex justify-end">
-              <button
-                onClick={advanceSegment}
-                className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity shadow-sm"
-              >
-                다음 파트로 <ChevronRight size={16} />
-              </button>
+            <div className="max-w-3xl mx-auto mb-3 space-y-2">
+              {discussCountdown !== null && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-tertiary/10 text-tertiary rounded-xl text-sm font-medium animate-pulse">
+                  <AlertTriangle size={14} />
+                  {discussCountdown}초 후 다음 파트로 넘어갑니다
+                </div>
+              )}
+              <div className="flex justify-end">
+                <button
+                  onClick={advanceSegment}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity shadow-sm"
+                >
+                  다음 파트로 <ChevronRight size={16} />
+                </button>
+              </div>
             </div>
           )}
           {!isReviewing && phase === 'challenge_feedback' && !loading && (
@@ -568,7 +630,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
               placeholder={placeholderMap[phase] || '...'}
               rows={1}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               disabled={!isInputActive || loading}
             />
