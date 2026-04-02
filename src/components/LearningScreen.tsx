@@ -69,7 +69,12 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
     skipChallengePhase,
     constellation,
     refreshConstellation,
+    viewingSegmentIndex,
+    viewSegment,
+    returnToCurrentSegment,
   } = useSession();
+
+  const isReviewing = viewingSegmentIndex !== null;
 
   const [input, setInput] = useState('');
   const [showSegmentSidebar, setShowSegmentSidebar] = useState(false);
@@ -165,9 +170,13 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
     el.style.height = Math.min(el.scrollHeight, 160) + 'px';
   }, [input]);
 
-  const currentSeg = session?.segments?.[session.current_segment_index];
-  const currentState = session?.segment_states?.[session.current_segment_index];
-  const isInputActive = ['preview', 'probing', 'hinting', 'discussing', 'challenge_prompt'].includes(phase);
+  const activeSeg = session?.segments?.[session.current_segment_index];
+  const activeState = session?.segment_states?.[session.current_segment_index];
+  const viewingSeg = isReviewing && viewingSegmentIndex !== null ? session?.segments?.[viewingSegmentIndex] : null;
+  const viewingState = isReviewing && viewingSegmentIndex !== null ? session?.segment_states?.[viewingSegmentIndex] : null;
+  const currentSeg = isReviewing ? viewingSeg : activeSeg;
+  const currentState = isReviewing ? viewingState : activeState;
+  const isInputActive = !isReviewing && ['preview', 'probing', 'hinting', 'discussing', 'challenge_prompt'].includes(phase);
 
   const placeholderMap: Partial<Record<Phase, string>> = {
     preview: '이 파트에서 뭘 다룰 것 같아?',
@@ -314,15 +323,29 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
           {session?.segments.map((seg, i) => {
             const st = session.segment_states[i];
             const isCurrent = i === session.current_segment_index;
+            const isViewing = viewingSegmentIndex === i;
+            const canClick = st?.completed && !isCurrent;
             return (
-              <div
+              <button
                 key={seg.id}
-                className={`px-6 py-3 text-sm transition-all ${
-                  isCurrent
+                type="button"
+                disabled={!canClick && !isCurrent}
+                onClick={() => {
+                  if (isCurrent && isReviewing) {
+                    returnToCurrentSegment();
+                  } else if (canClick) {
+                    viewSegment(i);
+                  }
+                  setShowSegmentSidebar(false);
+                }}
+                className={`w-full text-left px-6 py-3 text-sm transition-all ${
+                  isViewing
+                    ? 'bg-tertiary/10 text-tertiary border-r-4 border-tertiary'
+                    : isCurrent
                     ? 'bg-surface-container-lowest text-primary border-r-4 border-primary'
                     : st?.completed
-                    ? 'text-on-surface-variant/80'
-                    : 'text-on-surface-variant/40'
+                    ? 'text-on-surface-variant/80 hover:bg-surface-container-lowest/50 cursor-pointer'
+                    : 'text-on-surface-variant/40 cursor-not-allowed'
                 }`}
               >
                 <div className="flex items-center gap-2">
@@ -334,7 +357,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
                     {st.depth_label}
                   </span>
                 )}
-              </div>
+              </button>
             );
           })}
         </nav>
@@ -380,7 +403,15 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {phase === 'preview' && (
+            {isReviewing && (
+              <button
+                onClick={returnToCurrentSegment}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-full label-md text-[10px] hover:opacity-90 transition-opacity"
+              >
+                <ArrowLeft size={12} /> 현재 파트로 돌아가기
+              </button>
+            )}
+            {!isReviewing && phase === 'preview' && (
               <button
                 onClick={skipPreviewPhase}
                 className="ghost-border px-4 py-2 rounded-full label-md text-[10px] text-on-surface-variant hover:text-primary transition-colors flex items-center gap-2"
@@ -388,7 +419,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
                 <SkipForward size={12} /> 건너뛰기
               </button>
             )}
-            {phase === 'challenge_prompt' && (
+            {!isReviewing && phase === 'challenge_prompt' && (
               <button
                 onClick={skipChallengePhase}
                 className="ghost-border px-4 py-2 rounded-full label-md text-[10px] text-on-surface-variant hover:text-primary transition-colors flex items-center gap-2"
@@ -396,9 +427,13 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
                 <SkipForward size={12} /> 건너뛰기
               </button>
             )}
-            <Badge variant={phase === 'complete' ? 'success' : 'primary'}>
-              {PHASE_LABELS[phase] || phase}
-            </Badge>
+            {isReviewing ? (
+              <Badge variant="surface">복습 중</Badge>
+            ) : (
+              <Badge variant={phase === 'complete' ? 'success' : 'primary'}>
+                {PHASE_LABELS[phase] || phase}
+              </Badge>
+            )}
             <button
               onClick={() => setShowStatsSidebar(true)}
               className="md:hidden p-2 rounded-lg hover:bg-surface-container-high transition-colors"
@@ -412,7 +447,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-8 space-y-6">
           {/* Preview prompt */}
-          {phase === 'preview' && messages.length === 0 && currentSeg && (
+          {!isReviewing && phase === 'preview' && messages.length === 0 && currentSeg && (
             <div className="flex justify-center">
               <div className="max-w-md text-center space-y-3 p-6 bg-surface-container-lowest rounded-2xl border border-outline-variant/10">
                 <Sparkles size={24} className="mx-auto text-primary/60" />
@@ -497,7 +532,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
         {/* Input Area */}
         <div className="p-8">
           {/* "다음 파트" 버튼 — Discuss / Challenge Feedback 단계 */}
-          {phase === 'discussing' && !loading && (
+          {!isReviewing && phase === 'discussing' && !loading && (
             <div className="max-w-3xl mx-auto mb-3 flex justify-end">
               <button
                 onClick={advanceSegment}
@@ -507,7 +542,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
               </button>
             </div>
           )}
-          {phase === 'challenge_feedback' && !loading && (
+          {!isReviewing && phase === 'challenge_feedback' && !loading && (
             <div className="max-w-3xl mx-auto mb-3 flex justify-end">
               <button
                 onClick={finishChallenge}
