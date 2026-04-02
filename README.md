@@ -81,7 +81,35 @@ Academic_Architect/
 - Python 3.11+
 - `claude` CLI 설치 및 로그인 완료
 
-### 2. 프론트엔드/백엔드 의존성 설치
+### 빠른 시작
+
+가장 간단한 실행 방식은 아래 명령입니다.
+
+```bash
+./AA --onboard
+```
+
+이 명령은 아래 작업을 한 번에 처리합니다.
+
+- `.env`가 없으면 `.env.example` 기준으로 생성
+- `.venv`가 없으면 생성
+- Python 의존성이 없으면 설치
+- `node_modules`가 없으면 `npm install` 실행
+- FastAPI 백엔드 실행
+- Vite 프론트엔드 실행
+- 브라우저에서 `http://localhost:3000` 오픈
+
+옵션 예시:
+
+```bash
+./AA --onboard --no-browser
+./AA --onboard --backend-only
+./AA --onboard --frontend-only
+```
+
+### 수동 설치
+
+### 1. 프론트엔드/백엔드 의존성 설치
 
 ```bash
 npm install
@@ -90,7 +118,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. 환경 변수 설정
+### 2. 환경 변수 설정
 
 ```bash
 cp .env.example .env
@@ -98,14 +126,14 @@ cp .env.example .env
 
 기본값은 로컬 개발 기준으로 동작합니다. 현재 실제로 동작하는 백엔드는 `LLM_BACKEND=cli` 입니다.
 
-### 4. 백엔드 실행
+### 3. 백엔드 실행
 
 ```bash
 source .venv/bin/activate
 uvicorn server.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 5. 프론트엔드 실행
+### 4. 프론트엔드 실행
 
 ```bash
 npm run dev
