@@ -107,6 +107,22 @@ Academic_Architect/
 ./AA --onboard --frontend-only
 ```
 
+### `AA --onboard`로 바로 쓰기
+
+프로젝트 내부의 `./AA`를 사용자 명령으로 등록하려면 아래를 실행하면 됩니다.
+
+```bash
+./AA --print-install-snippet
+```
+
+출력된 내용을 실행하면 `~/.local/bin/AA` 심볼릭 링크와 `PATH` 설정이 추가됩니다. 이후에는 어느 위치에서든 아래처럼 실행할 수 있습니다.
+macOS 기본 `aa` 명령과 충돌을 피하기 위해 `AA` alias도 함께 등록합니다.
+
+```bash
+AA --onboard
+academic-architect --onboard
+```
+
 ### 수동 설치
 
 ### 1. 프론트엔드/백엔드 의존성 설치

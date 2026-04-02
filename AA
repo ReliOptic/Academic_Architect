@@ -52,6 +52,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Start only the backend server.",
     )
+    parser.add_argument(
+        "--print-install-snippet",
+        action="store_true",
+        help="Print the shell snippet for adding AA to your PATH.",
+    )
     return parser.parse_args()
 
 
@@ -203,8 +208,24 @@ def onboard(no_browser: bool, frontend_only: bool, backend_only: bool) -> int:
             stop_process(proc)
 
 
+def print_install_snippet() -> int:
+    target = ROOT / "AA"
+    snippet = f"""mkdir -p "$HOME/.local/bin"
+ln -sf "{target}" "$HOME/.local/bin/academic-architect"
+grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.zshrc" || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+grep -q "alias AA='{target}'" "$HOME/.zshrc" || echo "alias AA='{target}'" >> "$HOME/.zshrc"
+source "$HOME/.zshrc"
+AA --help
+academic-architect --help
+"""
+    print(snippet)
+    return 0
+
+
 def main() -> int:
     args = parse_args()
+    if args.print_install_snippet:
+        return print_install_snippet()
     if not args.onboard:
         print("Use `./AA --onboard` to bootstrap and run Academic Architect.")
         return 0
