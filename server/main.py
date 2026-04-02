@@ -110,8 +110,17 @@ async def create_session(file: UploadFile):
 @app.get("/api/sessions")
 async def list_sessions():
     sessions = session_store.list_sessions()
-    return [
-        {
+    result = []
+    for s in sessions:
+        # 평균 깊이 계산 (§G-6: 숫자 아닌 서술적 레이블로 표시)
+        completed_states = [st for st in s.segment_states if st.completed]
+        if completed_states:
+            avg_level = sum(st.level_info.level for st in completed_states) / len(completed_states)
+            avg_depth_label = DepthLabel.from_level(round(avg_level)).value
+        else:
+            avg_depth_label = None
+
+        result.append({
             "id": s.id,
             "title": s.title,
             "created_at": s.created_at,
@@ -122,9 +131,9 @@ async def list_sessions():
             "phase": s.phase.value,
             "setup_state": s.setup_state,
             "error_message": s.error_message,
-        }
-        for s in sessions
-    ]
+            "avg_depth_label": avg_depth_label,
+        })
+    return result
 
 
 @app.get("/api/sessions/{session_id}")
@@ -149,6 +158,17 @@ async def get_session(session_id: str):
                 "completed": st.completed,
                 "preview_prediction": st.preview_prediction,
                 "summary": st.summary,
+                "messages": [
+                    {
+                        "id": m.id,
+                        "role": m.role.value,
+                        "content": m.content,
+                        "timestamp": m.timestamp,
+                        "phase": m.phase.value,
+                        "metadata": m.metadata,
+                    }
+                    for m in st.messages
+                ],
             }
             for st in s.segment_states
         ],
@@ -270,6 +290,21 @@ async def discuss(session_id: str, req: UserMessageRequest):
     return response
 
 
+# ── Next Segment (명시적 전환) ──
+
+
+@app.post("/api/sessions/{session_id}/next-segment")
+async def next_segment(session_id: str):
+    """Discuss에서 명시적으로 다음 세그먼트로 전환."""
+    orch = _get_orchestrator(session_id)
+    await orch.advance_from_discuss()
+    return {
+        "ok": True,
+        "phase": orch.session.phase.value,
+        "current_segment_index": orch.session.current_segment_index,
+    }
+
+
 # ── Challenge (§G-5) ──
 
 
@@ -283,16 +318,19 @@ async def get_challenge(session_id: str):
 @app.post("/api/sessions/{session_id}/challenge")
 async def submit_challenge(session_id: str, req: UserMessageRequest):
     orch = _get_orchestrator(session_id)
-
-    # challenge 질문은 현재 세션 상태에서 가져올 수 없으므로
-    # 프론트엔드가 질문과 함께 보내야 함 — 간소화를 위해 재생성
-    question = await orch.generate_challenge()
-    feedback = await orch.challenge_feedback(question, req.content)
-
+    feedback = await orch.challenge_feedback("", req.content)
     return {
         "feedback": feedback,
         "phase": orch.session.phase.value,
     }
+
+
+@app.post("/api/sessions/{session_id}/finish-challenge")
+async def finish_challenge(session_id: str):
+    """챌린지 피드백 확인 후 다음 세그먼트로 진행."""
+    orch = _get_orchestrator(session_id)
+    orch.finish_challenge()
+    return {"ok": True, "phase": orch.session.phase.value}
 
 
 @app.post("/api/sessions/{session_id}/skip-challenge")
