@@ -27,9 +27,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from server.config import settings
 from server.models import (
     DepthLabel,
+    EventRequest,
     Phase,
     PreviewRequest,
     Session,
+    SessionEvent,
     UserMessageRequest,
 )
 from server.llm.cli_backend import CLIBackend
@@ -180,6 +182,15 @@ async def get_session(session_id: str):
         "total_output_tokens": s.total_output_tokens,
         "setup_state": s.setup_state,
         "error_message": s.error_message,
+        "events": [
+            {
+                "timestamp": e.timestamp,
+                "event_type": e.event_type,
+                "segment_id": e.segment_id,
+            }
+            for e in s.events
+        ],
+        "preview_participation_rate": s.preview_participation_rate,
     }
 
 
@@ -348,6 +359,28 @@ async def get_constellation(session_id: str):
     orch = _get_orchestrator(session_id)
     data = orch.get_constellation()
     return data.model_dump()
+
+
+# ── Events (§G-7 KPI) ──
+
+
+
+@app.post("/api/sessions/{session_id}/events")
+async def log_event(session_id: str, req: EventRequest):
+    """KPI 이벤트 기록 — Preview 참여율, Discuss 전환률 등."""
+    try:
+        session = session_store.load(session_id)
+    except FileNotFoundError:
+        raise HTTPException(404, f"Session not found: {session_id}")
+
+    event = SessionEvent(
+        event_type=req.event_type,
+        segment_id=req.segment_id,
+        metadata=req.metadata,
+    )
+    session.events.append(event)
+    session_store.save(session)
+    return {"ok": True}
 
 
 # ── Health ──

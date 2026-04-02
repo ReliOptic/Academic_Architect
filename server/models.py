@@ -118,8 +118,10 @@ class Session(BaseModel):
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     completed: bool = False
+    pending_challenge_question: str = ""
     setup_state: str = "pending"  # pending | ready | error
     error_message: str = ""
+    events: list[SessionEvent] = []
 
     @property
     def current_segment(self) -> Segment | None:
@@ -150,6 +152,15 @@ class Session(BaseModel):
     @property
     def level_trend(self) -> list[int]:
         return [st.level_info.level for st in self.segment_states if st.completed]
+
+    @property
+    def preview_participation_rate(self) -> float | None:
+        submitted = sum(1 for e in self.events if e.event_type == "preview_submitted")
+        skipped = sum(1 for e in self.events if e.event_type == "preview_skipped")
+        total = submitted + skipped
+        if total == 0:
+            return None
+        return submitted / total
 
 
 # ── Constellation ──
@@ -184,7 +195,22 @@ class PreviewRequest(BaseModel):
     prediction: str
 
 
+class EventRequest(BaseModel):
+    event_type: str
+    segment_id: int = 0
+    metadata: dict[str, Any] = {}
+
+
 # ── LLM usage ──
+
+# ── Session Event ──
+
+class SessionEvent(BaseModel):
+    timestamp: float = Field(default_factory=time.time)
+    event_type: str
+    segment_id: int = 0
+    metadata: dict[str, Any] = {}
+
 
 class LLMUsage(BaseModel):
     input_tokens: int = 0

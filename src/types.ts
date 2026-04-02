@@ -55,6 +55,8 @@ export interface Session {
   total_output_tokens: number;
   setup_state: 'pending' | 'ready' | 'error';
   error_message: string;
+  events?: SessionEvent[];
+  preview_participation_rate?: number | null;
 }
 
 export interface SessionListItem {
@@ -69,6 +71,12 @@ export interface SessionListItem {
   setup_state: 'pending' | 'ready' | 'error';
   error_message: string;
   avg_depth_label: DepthLabel | null;
+}
+
+export interface SessionEvent {
+  timestamp: number;
+  event_type: string;
+  segment_id: number;
 }
 
 export interface BackendStatus {

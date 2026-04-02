@@ -208,8 +208,10 @@ export function useSession(): UseSessionReturn {
     dispatch({ type: 'LOAD_START' });
     try {
       const id = getSessionId();
+      const segId = state.session?.segments[state.session.current_segment_index]?.id ?? 0;
       addMsg('user', prediction, 'preview');
       await api.savePreview(id, prediction);
+      api.logEvent(id, 'preview_submitted', segId).catch(() => {});
       dispatch({ type: 'SET_PHASE', phase: 'probing' });
       await refreshSession();
     } catch (e: unknown) {
@@ -217,12 +219,15 @@ export function useSession(): UseSessionReturn {
     } finally {
       dispatch({ type: 'LOADING_DONE' });
     }
-  }, [addMsg, refreshSession]);
+  }, [addMsg, refreshSession, state.session]);
 
   const skipPreviewPhase = useCallback(async () => {
     dispatch({ type: 'LOAD_START' });
     try {
-      await api.skipPreview(getSessionId());
+      const id = getSessionId();
+      const segId = state.session?.segments[state.session.current_segment_index]?.id ?? 0;
+      await api.skipPreview(id);
+      api.logEvent(id, 'preview_skipped', segId).catch(() => {});
       dispatch({ type: 'SET_PHASE', phase: 'probing' });
       await refreshSession();
     } catch (e: unknown) {
@@ -230,7 +235,7 @@ export function useSession(): UseSessionReturn {
     } finally {
       dispatch({ type: 'LOADING_DONE' });
     }
-  }, [refreshSession]);
+  }, [refreshSession, state.session]);
 
   const startProbe = useCallback(async () => {
     dispatch({ type: 'LOAD_START' });
