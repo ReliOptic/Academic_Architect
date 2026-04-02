@@ -187,10 +187,13 @@ async def get_session(session_id: str):
                 "timestamp": e.timestamp,
                 "event_type": e.event_type,
                 "segment_id": e.segment_id,
+                "metadata": e.metadata,
             }
             for e in s.events
         ],
         "preview_participation_rate": s.preview_participation_rate,
+        "discuss_entry_rate": s.discuss_entry_rate,
+        "natural_transition_rate": s.natural_transition_rate,
     }
 
 

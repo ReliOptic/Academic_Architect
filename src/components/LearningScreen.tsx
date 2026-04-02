@@ -166,7 +166,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
     // Auto-advance at 30s
     discussTimerRef.current = setTimeout(() => {
       clearDiscussTimers();
-      advanceSegment();
+      advanceSegment('auto_timeout');
     }, 30_000);
   }, [clearDiscussTimers, advanceSegment]);
 

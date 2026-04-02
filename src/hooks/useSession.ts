@@ -143,7 +143,7 @@ export interface UseSessionReturn {
   startProbe: () => Promise<void>;
   sendAnswer: (content: string) => Promise<AnswerResponse>;
   sendDiscuss: (content: string) => Promise<DiscussResponse>;
-  advanceSegment: () => Promise<void>;
+  advanceSegment: (trigger?: 'user_advance' | 'auto_timeout') => Promise<void>;
   startChallenge: () => Promise<void>;
   sendChallenge: (content: string) => Promise<void>;
   finishChallenge: () => Promise<void>;
@@ -263,6 +263,8 @@ export function useSession(): UseSessionReturn {
       } else if (result.delivery) {
         addMsg('assistant', result.delivery, 'delivering');
         dispatch({ type: 'SET_PHASE', phase: 'discussing' });
+        const segId = state.session?.segments[state.session.current_segment_index]?.id ?? 0;
+        api.logEvent(id, 'discuss_entered', segId).catch(() => {});
       }
 
       const prevIdx = state.session?.current_segment_index;
@@ -305,10 +307,12 @@ export function useSession(): UseSessionReturn {
     }
   }, [addMsg, refreshSession, refreshConstellation, state.session?.current_segment_index]);
 
-  const advanceSegment = useCallback(async () => {
+  const advanceSegment = useCallback(async (trigger: 'user_advance' | 'auto_timeout' = 'user_advance') => {
     dispatch({ type: 'LOAD_START' });
     try {
       const id = getSessionId();
+      const segId = state.session?.segments[state.session.current_segment_index]?.id ?? 0;
+      api.logEvent(id, 'segment_advance', segId, { trigger }).catch(() => {});
       const prevIdx = state.session?.current_segment_index;
       await api.nextSegment(id);
       await refreshSession(prevIdx);

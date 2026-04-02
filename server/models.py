@@ -162,6 +162,31 @@ class Session(BaseModel):
             return None
         return submitted / total
 
+    @property
+    def discuss_entry_rate(self) -> float | None:
+        """Discuss 진입률: discuss_entered / 시도된 세그먼트 수."""
+        entered = sum(1 for e in self.events if e.event_type == "discuss_entered")
+        attempted = sum(1 for st in self.segment_states if st.completed or st.phase != Phase.PREVIEW)
+        if attempted == 0:
+            return None
+        return entered / attempted
+
+    @property
+    def natural_transition_rate(self) -> float | None:
+        """자연 전환률: user_advance / (user_advance + auto_timeout)."""
+        user_advance = sum(
+            1 for e in self.events
+            if e.event_type == "segment_advance" and e.metadata.get("trigger") == "user_advance"
+        )
+        auto_timeout = sum(
+            1 for e in self.events
+            if e.event_type == "segment_advance" and e.metadata.get("trigger") == "auto_timeout"
+        )
+        total = user_advance + auto_timeout
+        if total == 0:
+            return None
+        return user_advance / total
+
 
 # ── Constellation ──
 

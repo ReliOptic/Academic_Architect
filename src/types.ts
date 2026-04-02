@@ -57,6 +57,8 @@ export interface Session {
   error_message: string;
   events?: SessionEvent[];
   preview_participation_rate?: number | null;
+  discuss_entry_rate?: number | null;
+  natural_transition_rate?: number | null;
 }
 
 export interface SessionListItem {
@@ -77,6 +79,7 @@ export interface SessionEvent {
   timestamp: number;
   event_type: string;
   segment_id: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface BackendStatus {
