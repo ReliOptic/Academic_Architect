@@ -80,6 +80,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
   const [showSegmentSidebar, setShowSegmentSidebar] = useState(false);
   const [showStatsSidebar, setShowStatsSidebar] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatHeaderRef = useRef<HTMLHeadingElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const probeStartedRef = useRef(false);
   const challengeStartedRef = useRef(false);
@@ -132,6 +133,13 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Focus chat header on segment transition (accessibility)
+  useEffect(() => {
+    if (session?.current_segment_index !== undefined) {
+      chatHeaderRef.current?.focus();
+    }
+  }, [session?.current_segment_index]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -397,7 +405,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
               <div className="label-md text-[9px] text-on-surface-variant uppercase tracking-widest">
                 {currentSeg ? `파트 ${currentSeg.id}` : '대기 중'}
               </div>
-              <h1 className="headline-md">
+              <h1 ref={chatHeaderRef} tabIndex={-1} className="headline-md outline-none">
                 {currentSeg?.title || '세션 로딩 중...'}
               </h1>
             </div>
@@ -422,6 +430,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
             {!isReviewing && phase === 'challenge_prompt' && (
               <button
                 onClick={skipChallengePhase}
+                aria-label="통합 도전 건너뛰기"
                 className="ghost-border px-4 py-2 rounded-full label-md text-[10px] text-on-surface-variant hover:text-primary transition-colors flex items-center gap-2"
               >
                 <SkipForward size={12} /> 건너뛰기
@@ -445,7 +454,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
         </header>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-8 space-y-6">
+        <div className="flex-1 overflow-y-auto p-8 space-y-6" aria-live="polite" aria-relevant="additions">
           {/* Preview prompt */}
           {!isReviewing && phase === 'preview' && messages.length === 0 && currentSeg && (
             <div className="flex justify-center">
@@ -566,6 +575,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
             <button
               onClick={handleSend}
               disabled={!input.trim() || loading}
+              aria-label="메시지 전송"
               className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 bg-primary text-white rounded-full flex items-center justify-center disabled:opacity-40 transition-opacity"
             >
               <ArrowUp size={20} />
@@ -679,7 +689,11 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
           </div>
         </div>
 
-        <button className="w-full py-4 bg-surface-container-high rounded-xl label-md text-[10px] text-on-surface-variant flex items-center justify-center gap-2 opacity-40 cursor-not-allowed">
+        <button
+          aria-label="세션 아카이브"
+          aria-disabled="true"
+          className="w-full py-4 bg-surface-container-high rounded-xl label-md text-[10px] text-on-surface-variant flex items-center justify-center gap-2 opacity-40 cursor-not-allowed"
+        >
           <Save size={14} /> 세션 아카이브
         </button>
       </aside>
