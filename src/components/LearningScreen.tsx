@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Activity,
-  ArrowUp,
   BarChart3,
   Map,
   Save,
@@ -11,7 +10,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Wrench,
-  ChevronRight,
   ArrowLeft,
   Menu,
   X,
@@ -23,6 +21,7 @@ import { SectionHeader } from './ui/SectionHeader';
 import { useSession } from '../hooks/useSession';
 import ConstellationView from './ConstellationView';
 import ChatMessageList from './learning/ChatMessageList';
+import ChatInput from './learning/ChatInput';
 import type { Phase } from '../types';
 
 interface Props {
@@ -82,7 +81,6 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
   const [discussCountdown, setDiscussCountdown] = useState<number | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const chatHeaderRef = useRef<HTMLHeadingElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const probeStartedRef = useRef(false);
   const challengeStartedRef = useRef(false);
   const discussTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -224,13 +222,6 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
     }
   };
 
-  // Auto-resize textarea
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
-  }, [input]);
 
   const activeSeg = session?.segments?.[session.current_segment_index];
   const activeState = session?.segment_states?.[session.current_segment_index];
@@ -240,13 +231,6 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
   const currentState = isReviewing ? viewingState : activeState;
   const isInputActive = !isReviewing && ['preview', 'probing', 'hinting', 'discussing', 'challenge_prompt'].includes(phase);
 
-  const placeholderMap: Partial<Record<Phase, string>> = {
-    preview: '이 파트에서 뭘 다룰 것 같아?',
-    probing: '답변을 입력하세요...',
-    hinting: '다시 생각해서 답변해봐...',
-    discussing: '궁금한 거 있어? 없으면 "다음"',
-    challenge_prompt: '통합 질문에 답변해봐...',
-  };
 
   if (!sessionId) {
     return (
@@ -523,57 +507,19 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
         />
 
         {/* Input Area */}
-        <div className="p-8">
-          {/* "다음 파트" 버튼 — Discuss / Challenge Feedback 단계 */}
-          {!isReviewing && phase === 'discussing' && !loading && (
-            <div className="max-w-3xl mx-auto mb-3 space-y-2">
-              {discussCountdown !== null && (
-                <div className="flex items-center gap-2 px-4 py-2 bg-tertiary/10 text-tertiary rounded-xl text-sm font-medium animate-pulse">
-                  <AlertTriangle size={14} />
-                  {discussCountdown}초 후 다음 파트로 넘어갑니다
-                </div>
-              )}
-              <div className="flex justify-end">
-                <button
-                  onClick={advanceSegment}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity shadow-sm"
-                >
-                  다음 파트로 <ChevronRight size={16} />
-                </button>
-              </div>
-            </div>
-          )}
-          {!isReviewing && phase === 'challenge_feedback' && !loading && (
-            <div className="max-w-3xl mx-auto mb-3 flex justify-end">
-              <button
-                onClick={finishChallenge}
-                className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity shadow-sm"
-              >
-                다음 파트로 <ChevronRight size={16} />
-              </button>
-            </div>
-          )}
-          <div className={`max-w-3xl mx-auto relative ${!isInputActive ? 'opacity-40 pointer-events-none' : ''}`}>
-            <textarea
-              ref={textareaRef}
-              className="w-full bg-surface-container-lowest ghost-border rounded-2xl px-8 py-4 pr-16 text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none overflow-hidden"
-              placeholder={placeholderMap[phase] || '...'}
-              rows={1}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              disabled={!isInputActive || loading}
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || loading}
-              aria-label="메시지 전송"
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 bg-primary text-white rounded-full flex items-center justify-center disabled:opacity-40 transition-opacity"
-            >
-              <ArrowUp size={20} />
-            </button>
-          </div>
-        </div>
+        <ChatInput
+          phase={phase}
+          loading={loading}
+          isReviewing={isReviewing}
+          isInputActive={isInputActive}
+          input={input}
+          discussCountdown={discussCountdown}
+          onInputChange={handleInputChange}
+          onKeyDown={handleKeyDown}
+          onSend={handleSend}
+          onAdvance={advanceSegment}
+          onFinishChallenge={finishChallenge}
+        />
       </section>
 
       {/* Stats Sidebar */}
