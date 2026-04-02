@@ -12,6 +12,11 @@ import {
   AlertTriangle,
   CheckCircle2,
   Wrench,
+  ChevronRight,
+  ArrowLeft,
+  Menu,
+  X,
+  PanelRightOpen,
 } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
@@ -22,6 +27,7 @@ import type { Phase } from '../types';
 
 interface Props {
   sessionId: string | null;
+  onNavigateDashboard?: () => void;
 }
 
 const DEPTH_LABELS: Record<string, { label: string; color: string }> = {
@@ -43,7 +49,7 @@ const PHASE_LABELS: Partial<Record<Phase, string>> = {
   complete: '완료',
 };
 
-export default function LearningScreen({ sessionId }: Props) {
+export default function LearningScreen({ sessionId, onNavigateDashboard }: Props) {
   const {
     session,
     messages,
@@ -56,16 +62,22 @@ export default function LearningScreen({ sessionId }: Props) {
     startProbe,
     sendAnswer,
     sendDiscuss,
+    advanceSegment,
     startChallenge,
     sendChallenge,
+    finishChallenge,
     skipChallengePhase,
     constellation,
     refreshConstellation,
   } = useSession();
 
   const [input, setInput] = useState('');
+  const [showSegmentSidebar, setShowSegmentSidebar] = useState(false);
+  const [showStatsSidebar, setShowStatsSidebar] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const probeStartedRef = useRef(false);
+  const challengeStartedRef = useRef(false);
 
   // Load session + constellation
   useEffect(() => {
@@ -74,11 +86,27 @@ export default function LearningScreen({ sessionId }: Props) {
     }
   }, [sessionId, loadSession, refreshConstellation]);
 
+  // Pending 세션 자동 polling — setup_state가 'pending'이면 3초마다 재조회
+  useEffect(() => {
+    if (!session || session.setup_state !== 'pending') return;
+    const timer = setInterval(() => {
+      if (sessionId) loadSession(sessionId);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [session?.setup_state, sessionId, loadSession]);
+
+  // Reset guards when segment changes
+  useEffect(() => {
+    probeStartedRef.current = false;
+    challengeStartedRef.current = false;
+  }, [session?.current_segment_index]);
+
   // Auto-start probe when entering probing phase with no probe question yet
   useEffect(() => {
-    if (phase === 'probing' && session && !loading) {
+    if (phase === 'probing' && session && !loading && !probeStartedRef.current) {
       const hasProbeMsg = messages.some(m => m.phase === 'probing' && m.role === 'assistant');
       if (!hasProbeMsg) {
+        probeStartedRef.current = true;
         startProbe();
       }
     }
@@ -86,9 +114,10 @@ export default function LearningScreen({ sessionId }: Props) {
 
   // Auto-start challenge
   useEffect(() => {
-    if (phase === 'challenge_prompt' && session && !loading) {
+    if (phase === 'challenge_prompt' && session && !loading && !challengeStartedRef.current) {
       const hasChallenge = messages.some(m => m.phase === 'challenge_prompt' && m.role === 'assistant');
       if (!hasChallenge) {
+        challengeStartedRef.current = true;
         startChallenge();
       }
     }
@@ -128,6 +157,14 @@ export default function LearningScreen({ sessionId }: Props) {
     }
   };
 
+  // Auto-resize textarea
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+  }, [input]);
+
   const currentSeg = session?.segments?.[session.current_segment_index];
   const currentState = session?.segment_states?.[session.current_segment_index];
   const isInputActive = ['preview', 'probing', 'hinting', 'discussing', 'challenge_prompt'].includes(phase);
@@ -149,6 +186,14 @@ export default function LearningScreen({ sessionId }: Props) {
           <p className="text-sm text-on-surface-variant opacity-60">
             Dashboard에서 스크립트를 업로드하면 학습이 시작됩니다.
           </p>
+          {onNavigateDashboard && (
+            <button
+              onClick={onNavigateDashboard}
+              className="mt-4 px-6 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity"
+            >
+              대시보드로 이동
+            </button>
+          )}
         </div>
       </div>
     );
@@ -211,16 +256,45 @@ export default function LearningScreen({ sessionId }: Props) {
               </div>
             </div>
           </div>
+
+          {onNavigateDashboard && (
+            <button
+              onClick={onNavigateDashboard}
+              className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity"
+            >
+              <ArrowLeft size={16} /> 대시보드로 돌아가기
+            </button>
+          )}
         </Card>
       </div>
     );
   }
 
   return (
-    <div className="flex h-[calc(100vh-64px)] overflow-hidden">
+    <div className="flex h-[calc(100vh-64px)] overflow-hidden relative">
+      {/* Mobile overlay */}
+      {(showSegmentSidebar || showStatsSidebar) && (
+        <div
+          className="fixed inset-0 bg-black/40 z-30 md:hidden"
+          onClick={() => { setShowSegmentSidebar(false); setShowStatsSidebar(false); }}
+        />
+      )}
+
       {/* Sidebar — Segment List */}
-      <aside className="w-64 bg-surface-container-low border-r border-outline-variant/5 flex flex-col py-8">
+      <aside className={`
+        fixed inset-y-0 left-0 z-40 w-64 bg-surface-container-low border-r border-outline-variant/5 flex flex-col py-8
+        transform transition-transform duration-200 ease-in-out
+        ${showSegmentSidebar ? 'translate-x-0' : '-translate-x-full'}
+        md:static md:translate-x-0 md:z-auto
+      `}>
         <div className="px-6 mb-10">
+          <button
+            onClick={() => setShowSegmentSidebar(false)}
+            className="md:hidden mb-4 p-1.5 rounded-lg hover:bg-surface-container-high transition-colors"
+            aria-label="세그먼트 목록 닫기"
+          >
+            <X size={18} />
+          </button>
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-white shadow-ambient">
               <Activity size={20} />
@@ -287,14 +361,23 @@ export default function LearningScreen({ sessionId }: Props) {
 
       {/* Chat Area */}
       <section className="flex-1 flex flex-col bg-surface-container-low relative">
-        <header className="h-20 px-10 flex items-center justify-between bg-surface-container-lowest/50 backdrop-blur-md border-b border-outline-variant/5">
-          <div>
-            <div className="label-md text-[9px] text-on-surface-variant uppercase tracking-widest">
-              {currentSeg ? `파트 ${currentSeg.id}` : '대기 중'}
+        <header className="h-20 px-4 md:px-10 flex items-center justify-between bg-surface-container-lowest/50 backdrop-blur-md border-b border-outline-variant/5">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowSegmentSidebar(true)}
+              className="md:hidden p-2 rounded-lg hover:bg-surface-container-high transition-colors"
+              aria-label="세그먼트 목록 열기"
+            >
+              <Menu size={20} />
+            </button>
+            <div>
+              <div className="label-md text-[9px] text-on-surface-variant uppercase tracking-widest">
+                {currentSeg ? `파트 ${currentSeg.id}` : '대기 중'}
+              </div>
+              <h1 className="headline-md">
+                {currentSeg?.title || '세션 로딩 중...'}
+              </h1>
             </div>
-            <h1 className="headline-md">
-              {currentSeg?.title || '세션 로딩 중...'}
-            </h1>
           </div>
           <div className="flex items-center gap-3">
             {phase === 'preview' && (
@@ -316,6 +399,13 @@ export default function LearningScreen({ sessionId }: Props) {
             <Badge variant={phase === 'complete' ? 'success' : 'primary'}>
               {PHASE_LABELS[phase] || phase}
             </Badge>
+            <button
+              onClick={() => setShowStatsSidebar(true)}
+              className="md:hidden p-2 rounded-lg hover:bg-surface-container-high transition-colors"
+              aria-label="통계 패널 열기"
+            >
+              <PanelRightOpen size={20} />
+            </button>
           </div>
         </header>
 
@@ -350,9 +440,9 @@ export default function LearningScreen({ sessionId }: Props) {
                     : 'bg-surface-container-lowest border border-outline-variant/10 rounded-bl-md'
                 }`}
               >
-                {msg.metadata?.cross_segment_link && (
-                  <div className="flex items-center gap-1 mb-2 text-[10px] font-bold text-tertiary">
-                    <Sparkles size={10} /> 세그먼트 간 연결 발견!
+                {Boolean(msg.metadata?.cross_segment_link) && (
+                  <div className="flex items-center gap-2 mb-3 px-3 py-1.5 bg-primary/10 rounded-lg text-xs font-bold text-primary">
+                    <Sparkles size={14} /> 세그먼트 간 연결 발견!
                   </div>
                 )}
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
@@ -389,8 +479,14 @@ export default function LearningScreen({ sessionId }: Props) {
           {/* Error */}
           {error && (
             <div className="flex justify-center">
-              <div className="p-4 bg-error/10 text-error rounded-xl text-sm">
-                {error}
+              <div className="p-4 bg-error/10 text-error rounded-xl text-sm flex items-center gap-3">
+                <span>{error}</span>
+                <button
+                  onClick={() => loadSession(sessionId!)}
+                  className="shrink-0 px-3 py-1 bg-error/20 rounded-lg text-xs font-bold hover:bg-error/30 transition-colors"
+                >
+                  재시도
+                </button>
               </div>
             </div>
           )}
@@ -400,10 +496,31 @@ export default function LearningScreen({ sessionId }: Props) {
 
         {/* Input Area */}
         <div className="p-8">
+          {/* "다음 파트" 버튼 — Discuss / Challenge Feedback 단계 */}
+          {phase === 'discussing' && !loading && (
+            <div className="max-w-3xl mx-auto mb-3 flex justify-end">
+              <button
+                onClick={advanceSegment}
+                className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity shadow-sm"
+              >
+                다음 파트로 <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+          {phase === 'challenge_feedback' && !loading && (
+            <div className="max-w-3xl mx-auto mb-3 flex justify-end">
+              <button
+                onClick={finishChallenge}
+                className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity shadow-sm"
+              >
+                다음 파트로 <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
           <div className={`max-w-3xl mx-auto relative ${!isInputActive ? 'opacity-40 pointer-events-none' : ''}`}>
             <textarea
               ref={textareaRef}
-              className="w-full bg-surface-container-lowest ghost-border rounded-full px-8 py-4 pr-16 text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none"
+              className="w-full bg-surface-container-lowest ghost-border rounded-2xl px-8 py-4 pr-16 text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none overflow-hidden"
               placeholder={placeholderMap[phase] || '...'}
               rows={1}
               value={input}
@@ -423,7 +540,21 @@ export default function LearningScreen({ sessionId }: Props) {
       </section>
 
       {/* Stats Sidebar */}
-      <aside className="w-96 bg-surface border-l border-outline-variant/5 p-8 space-y-10 overflow-y-auto">
+      <aside className={`
+        fixed inset-y-0 right-0 z-40 w-80 md:w-96 bg-surface border-l border-outline-variant/5 p-8 space-y-10 overflow-y-auto
+        transform transition-transform duration-200 ease-in-out
+        ${showStatsSidebar ? 'translate-x-0' : 'translate-x-full'}
+        md:static md:translate-x-0 md:z-auto
+      `}>
+        {/* Mobile close button */}
+        <button
+          onClick={() => setShowStatsSidebar(false)}
+          className="md:hidden p-1.5 rounded-lg hover:bg-surface-container-high transition-colors self-end"
+          aria-label="통계 패널 닫기"
+        >
+          <X size={18} />
+        </button>
+
         {/* Depth Gauge */}
         <div className="space-y-4">
           <SectionHeader icon={BarChart3} label="탐구 깊이" />
@@ -464,22 +595,43 @@ export default function LearningScreen({ sessionId }: Props) {
           </Card>
         </div>
 
-        {/* Preview vs Actual */}
-        {currentState?.preview_prediction && currentState?.completed && (
-          <div className="space-y-4">
-            <SectionHeader icon={MessageCircle} label="예측 vs 실제" />
-            <Card variant="lowest" hover={false} className="p-4 space-y-3">
-              <div>
-                <div className="text-[9px] font-bold text-on-surface-variant uppercase mb-1">내 예측</div>
-                <p className="text-xs text-on-surface-variant/70">{currentState.preview_prediction}</p>
-              </div>
-              <div>
-                <div className="text-[9px] font-bold text-primary uppercase mb-1">실제 내용</div>
-                <p className="text-xs">{currentSeg?.core_concept}</p>
-              </div>
-            </Card>
-          </div>
-        )}
+        {/* Preview vs Actual — 현재 또는 마지막 완료 세그먼트 */}
+        {(() => {
+          // 현재 세그먼트가 예측+완료면 표시, 아니면 마지막 완료 세그먼트 검색
+          let previewState = currentState?.preview_prediction && currentState?.completed ? currentState : null;
+          let previewSeg = previewState ? currentSeg : null;
+          if (!previewState && session) {
+            for (let i = session.segment_states.length - 1; i >= 0; i--) {
+              const st = session.segment_states[i];
+              if (st.completed && st.preview_prediction) {
+                previewState = st;
+                previewSeg = session.segments[i];
+                break;
+              }
+            }
+          }
+          if (!previewState || !previewSeg) return null;
+          return (
+            <div className="space-y-4">
+              <SectionHeader icon={MessageCircle} label="예측 vs 실제" />
+              <Card variant="lowest" hover={false} className="p-4 space-y-3">
+                <div>
+                  <div className="text-xs font-bold text-on-surface-variant uppercase mb-1">내 예측</div>
+                  <p className="text-xs text-on-surface-variant/70">{previewState.preview_prediction}</p>
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-primary uppercase mb-1">실제 내용</div>
+                  <p className="text-xs">{previewSeg.core_concept}</p>
+                </div>
+                {previewSeg !== currentSeg && (
+                  <div className="text-xs text-on-surface-variant/40 italic">
+                    파트: {previewSeg.title}
+                  </div>
+                )}
+              </Card>
+            </div>
+          );
+        })()}
 
         {/* Knowledge Constellation (§G-2) */}
         <div className="space-y-4">
