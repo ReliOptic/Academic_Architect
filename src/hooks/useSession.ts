@@ -48,6 +48,18 @@ function makeId() {
   return `msg-${++msgCounter}-${Date.now()}`;
 }
 
+function hydrateMessages(session: Session): ChatMessage[] {
+  const state = session.segment_states?.[session.current_segment_index];
+  if (!state?.messages?.length) return [];
+  return state.messages.map((message) => ({
+    id: message.id || makeId(),
+    role: message.role,
+    content: message.content,
+    phase: message.phase,
+    metadata: message.metadata,
+  }));
+}
+
 export function useSession(): UseSessionReturn {
   const [session, setSession] = useState<Session | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -67,7 +79,7 @@ export function useSession(): UseSessionReturn {
       const s = await api.getSession(id);
       setSession(s);
       setPhase(s.phase);
-      setMessages([]);
+      setMessages(hydrateMessages(s));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -80,6 +92,7 @@ export function useSession(): UseSessionReturn {
     const s = await api.getSession(session.id);
     setSession(s);
     setPhase(s.phase);
+    setMessages(hydrateMessages(s));
   }, [session]);
 
   const submitPreview = useCallback(async (prediction: string) => {

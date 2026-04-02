@@ -10,6 +10,7 @@ import type {
   ProbeResponse,
   Session,
   SessionListItem,
+  BackendStatus,
 } from './types';
 
 const BASE = '/api';
@@ -121,4 +122,8 @@ export function getConstellation(sessionId: string) {
 
 export function healthCheck() {
   return request<{ status: string; backend: string }>('/health');
+}
+
+export function getBackendStatus() {
+  return request<BackendStatus>('/status');
 }

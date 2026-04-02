@@ -9,6 +9,9 @@ import {
   Loader2,
   Sparkles,
   MessageCircle,
+  AlertTriangle,
+  CheckCircle2,
+  Wrench,
 } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
@@ -147,6 +150,68 @@ export default function LearningScreen({ sessionId }: Props) {
             Dashboard에서 스크립트를 업로드하면 학습이 시작됩니다.
           </p>
         </div>
+      </div>
+    );
+  }
+
+  if (session && session.setup_state !== 'ready') {
+    const isError = session.setup_state === 'error';
+    return (
+      <div className="max-w-4xl mx-auto px-8 py-20">
+        <Card variant="lowest" hover={false} className="p-10 space-y-8">
+          <div className="flex items-start justify-between gap-6">
+            <div className="space-y-3">
+              <div className="label-md text-[10px] text-on-surface-variant">
+                SESSION DIAGNOSTICS
+              </div>
+              <h1 className="headline-md">
+                {isError ? '세션 초기화에 실패했습니다' : '세션을 준비 중입니다'}
+              </h1>
+              <p className="text-sm text-on-surface-variant max-w-2xl leading-relaxed">
+                업로드 파일은 저장되었지만, 세그먼트 생성과 학습 루프 초기화가 아직 완료되지 않았습니다.
+              </p>
+            </div>
+            <Badge variant={isError ? 'error' : 'surface'}>
+              {isError ? 'ERROR' : 'PENDING'}
+            </Badge>
+          </div>
+
+          {isError && (
+            <div className="rounded-2xl bg-error/10 text-error p-5 flex gap-3">
+              <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+              <div className="space-y-2">
+                <div className="font-bold">실패 원인</div>
+                <div className="text-sm whitespace-pre-wrap">
+                  {session.error_message || '백엔드에서 세션을 생성하는 중 오류가 발생했습니다.'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="rounded-2xl bg-surface-container-low p-5 space-y-2">
+              <CheckCircle2 size={16} className="text-status-active" />
+              <div className="font-bold">1. Claude CLI 확인</div>
+              <div className="text-xs text-on-surface-variant">
+                터미널에서 `claude` 명령이 실제로 동작하는지 먼저 확인합니다.
+              </div>
+            </div>
+            <div className="rounded-2xl bg-surface-container-low p-5 space-y-2">
+              <Wrench size={16} className="text-primary" />
+              <div className="font-bold">2. Dashboard 상태 확인</div>
+              <div className="text-xs text-on-surface-variant">
+                대시보드 상단의 AI 연결 상태와 세션 카드의 오류 메시지를 확인합니다.
+              </div>
+            </div>
+            <div className="rounded-2xl bg-surface-container-low p-5 space-y-2">
+              <Sparkles size={16} className="text-tertiary" />
+              <div className="font-bold">3. 다시 업로드</div>
+              <div className="text-xs text-on-surface-variant">
+                환경을 바로잡은 뒤 새 세션으로 다시 업로드하는 편이 가장 빠릅니다.
+              </div>
+            </div>
+          </div>
+        </Card>
       </div>
     );
   }

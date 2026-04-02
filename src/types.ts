@@ -30,6 +30,14 @@ export interface SegmentState {
   completed: boolean;
   preview_prediction: string;
   summary: string;
+  messages?: {
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp: number;
+    phase: Phase;
+    metadata?: Record<string, unknown>;
+  }[];
 }
 
 export interface Session {
@@ -45,6 +53,8 @@ export interface Session {
   cost_usd: number;
   total_input_tokens: number;
   total_output_tokens: number;
+  setup_state: 'pending' | 'ready' | 'error';
+  error_message: string;
 }
 
 export interface SessionListItem {
@@ -56,6 +66,18 @@ export interface SessionListItem {
   completed: boolean;
   cost_usd: number;
   phase: Phase;
+  setup_state: 'pending' | 'ready' | 'error';
+  error_message: string;
+}
+
+export interface BackendStatus {
+  backend: string;
+  server_ok: boolean;
+  llm_ready: boolean;
+  cli_available: boolean;
+  cli_path: string;
+  sessions_dir: string;
+  uploads_dir: string;
 }
 
 export interface ProbeResponse {

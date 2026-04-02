@@ -71,6 +71,8 @@ class Orchestrator:
             SegmentState(segment_id=s.id) for s in segments
         ]
         self.session.phase = Phase.PREVIEW
+        self.session.setup_state = "ready"
+        self.session.error_message = ""
         session_store.save(self.session)
 
         return segments

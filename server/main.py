@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -80,16 +81,25 @@ async def create_session(file: UploadFile):
     session = Session(
         title=path.stem,
         script_filename=file.filename,
+        setup_state="pending",
     )
     session_store.save(session)
 
     orch = Orchestrator(session, backend)
-    segments = await orch.segment_script(script_text)
+    try:
+        segments = await orch.segment_script(script_text)
+    except Exception as exc:
+        logger.exception("Session bootstrap failed: %s", session.id)
+        session.setup_state = "error"
+        session.error_message = str(exc)
+        session_store.save(session)
+        raise HTTPException(500, f"세션 초기화 실패: {exc}")
 
     return {
         "session_id": session.id,
         "title": session.title,
         "segment_count": len(segments),
+        "setup_state": session.setup_state,
         "segments": [
             {"id": s.id, "title": s.title, "core_concept": s.core_concept}
             for s in segments
@@ -110,6 +120,8 @@ async def list_sessions():
             "completed": s.completed,
             "cost_usd": s.cost_usd,
             "phase": s.phase.value,
+            "setup_state": s.setup_state,
+            "error_message": s.error_message,
         }
         for s in sessions
     ]
@@ -146,6 +158,8 @@ async def get_session(session_id: str):
         "cost_usd": s.cost_usd,
         "total_input_tokens": s.total_input_tokens,
         "total_output_tokens": s.total_output_tokens,
+        "setup_state": s.setup_state,
+        "error_message": s.error_message,
     }
 
 
@@ -304,6 +318,20 @@ async def get_constellation(session_id: str):
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "backend": settings.LLM_BACKEND}
+
+
+@app.get("/api/status")
+async def status():
+    cli_path = shutil.which("claude")
+    return {
+        "backend": settings.LLM_BACKEND,
+        "server_ok": True,
+        "llm_ready": bool(cli_path) if settings.LLM_BACKEND == "cli" else True,
+        "cli_available": bool(cli_path),
+        "cli_path": cli_path or "",
+        "sessions_dir": str(settings.SESSIONS_DIR),
+        "uploads_dir": str(settings.UPLOADS_DIR),
+    }
 
 
 if __name__ == "__main__":

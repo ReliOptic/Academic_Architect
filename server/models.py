@@ -118,6 +118,8 @@ class Session(BaseModel):
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     completed: bool = False
+    setup_state: str = "pending"  # pending | ready | error
+    error_message: str = ""
 
     @property
     def current_segment(self) -> Segment | None:
