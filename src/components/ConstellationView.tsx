@@ -1,9 +1,10 @@
 /**
  * Knowledge Constellation (§G-2) — 지식 별자리 시각화.
  * depends_on 기반 계층 레이아웃 + §G-6 깊이 게이지 4단계.
+ * §G-4 엣지 스타일: depends_on=실선+화살표, cross_segment_link=점선+primary+펄스.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import type { ConstellationData, ConstellationNode, ConstellationEdge } from '../types';
 
 interface Props {
@@ -89,10 +90,15 @@ export default function ConstellationView({ data, currentSegmentId, className = 
   const positioned = useMemo(() => layoutNodes(data.nodes, data.edges), [data.nodes, data.edges]);
   const nodeMap = useMemo(() => new Map(positioned.map((n) => [n.id, n])), [positioned]);
 
+  const [hoveredEdge, setHoveredEdge] = useState<number | null>(null);
+
+  const handleEdgeEnter = useCallback((i: number) => setHoveredEdge(i), []);
+  const handleEdgeLeave = useCallback(() => setHoveredEdge(null), []);
+
   if (!data.nodes.length) {
     return (
-      <div className={`flex items-center justify-center h-full text-on-surface-variant/40 text-xs uppercase tracking-widest ${className}`}>
-        별자리 생성 대기 중
+      <div className={`flex items-center justify-center h-full text-on-surface-variant/40 text-xs ${className}`}>
+        아직 탐구한 파트가 없어요
       </div>
     );
   }
@@ -100,24 +106,62 @@ export default function ConstellationView({ data, currentSegmentId, className = 
   return (
     <div className={className}>
       <svg viewBox="0 0 300 300" className="w-full h-full" role="img" aria-label="지식 별자리 — 탐구한 개념들의 관계도">
+        <defs>
+          {/* depends_on 화살표 마커 */}
+          <marker id="arrow-dep" viewBox="0 0 10 10" refX="10" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-outline-variant)" />
+          </marker>
+          {/* cross_segment_link 화살표 마커 (primary) */}
+          <marker id="arrow-cross" viewBox="0 0 10 10" refX="10" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--color-primary)" />
+          </marker>
+        </defs>
+
         {/* Edges */}
         {data.edges.map((edge, i) => {
           const src = nodeMap.get(edge.source);
           const tgt = nodeMap.get(edge.target);
           if (!src || !tgt) return null;
+          const isHovered = hoveredEdge === i;
+
+          const isCross = edge.is_cross_link;
+          const isDep = edge.is_dependency;
+
           return (
-            <line
-              key={`e-${i}`}
-              x1={src.x}
-              y1={src.y}
-              x2={tgt.x}
-              y2={tgt.y}
-              stroke={edge.is_cross_link ? 'var(--color-primary)' : 'var(--color-outline-variant)'}
-              strokeWidth={edge.is_cross_link ? 2 : 1}
-              strokeDasharray={edge.is_cross_link ? '4 2' : edge.is_dependency ? '' : '2 2'}
-              opacity={edge.is_cross_link ? 0.8 : 0.3}
-              className={edge.is_cross_link ? 'animate-pulse' : ''}
-            />
+            <g key={`e-${i}`}
+              onMouseEnter={() => handleEdgeEnter(i)}
+              onMouseLeave={handleEdgeLeave}
+            >
+              {/* 투명한 넓은 히트 영역 */}
+              <line
+                x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y}
+                stroke="transparent" strokeWidth={12}
+              />
+              <line
+                x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y}
+                stroke={isCross ? 'var(--color-primary)' : 'var(--color-outline-variant)'}
+                strokeWidth={isCross ? 2 : 1}
+                strokeDasharray={isCross ? '6 3' : isDep ? '' : '2 2'}
+                opacity={isHovered ? 1 : isCross ? 0.8 : 0.3}
+                markerEnd={isDep ? 'url(#arrow-dep)' : isCross ? 'url(#arrow-cross)' : undefined}
+                className={isCross ? 'animate-pulse' : ''}
+              />
+              {/* 호버 툴팁 */}
+              {isHovered && (
+                <text
+                  x={(src.x + tgt.x) / 2}
+                  y={(src.y + tgt.y) / 2 - 8}
+                  textAnchor="middle"
+                  fill="var(--color-on-surface)"
+                  fontSize={7}
+                  className="pointer-events-none"
+                >
+                  {src.title} → {tgt.title}
+                </text>
+              )}
+            </g>
           );
         })}
 
