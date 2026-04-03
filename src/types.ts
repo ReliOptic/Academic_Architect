@@ -55,6 +55,10 @@ export interface Session {
   total_output_tokens: number;
   setup_state: 'pending' | 'ready' | 'error';
   error_message: string;
+  events?: SessionEvent[];
+  preview_participation_rate?: number | null;
+  discuss_entry_rate?: number | null;
+  natural_transition_rate?: number | null;
 }
 
 export interface SessionListItem {
@@ -68,6 +72,14 @@ export interface SessionListItem {
   phase: Phase;
   setup_state: 'pending' | 'ready' | 'error';
   error_message: string;
+  avg_depth_label: DepthLabel | null;
+}
+
+export interface SessionEvent {
+  timestamp: number;
+  event_type: string;
+  segment_id: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface BackendStatus {
@@ -125,27 +137,4 @@ export interface ConstellationData {
   edges: ConstellationEdge[];
 }
 
-// ── Legacy types (kept for existing UI components) ──
-
-export interface LogEntry {
-  timestamp: string;
-  level: 'INFO' | 'WARN' | 'ERROR' | 'SYSTEM';
-  message: string;
-  source?: string;
-}
-
-export interface Model {
-  id: string;
-  name: string;
-  provider: string;
-}
-
-export interface Engine {
-  id: string;
-  name: string;
-  icon: any;
-  description: string;
-  cost?: string;
-  badge?: string;
-  recommended?: boolean;
-}
+// Legacy types removed — ModelSettingsScreen simplified

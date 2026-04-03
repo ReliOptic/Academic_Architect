@@ -1,20 +1,22 @@
 /**
- * 세션 상태 관리 hook.
- * 학습 루프의 모든 phase를 관리한다.
+ * 세션 상태 관리 hook — useReducer 기반.
+ * stale closure 방지를 위해 session ID를 useRef로 추적.
  */
 
-import { useState, useCallback } from 'react';
+import { useReducer, useCallback, useRef } from 'react';
 import * as api from '../api';
 import type {
   AnswerResponse,
   ConstellationData,
   DiscussResponse,
   Phase,
-  ProbeResponse,
+  SegmentState,
   Session,
 } from '../types';
 
-interface ChatMessage {
+// ── Types ──
+
+export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -22,228 +24,444 @@ interface ChatMessage {
   metadata?: Record<string, unknown>;
 }
 
-interface UseSessionReturn {
+interface SessionState {
   session: Session | null;
   messages: ChatMessage[];
   phase: Phase;
   loading: boolean;
   error: string | null;
+  errorPhase: Phase | null;
+  errorIsNetwork: boolean;
+  errorCount: number;
+  constellation: ConstellationData | null;
+  viewingSegmentIndex: number | null;
+}
 
-  // Actions
+type Action =
+  | { type: 'LOAD_START' }
+  | { type: 'LOAD_SESSION'; session: Session; messages: ChatMessage[] }
+  | { type: 'SET_ERROR'; error: string; phase: Phase; isNetwork: boolean }
+  | { type: 'CLEAR_ERROR' }
+  | { type: 'ADD_MESSAGE'; message: ChatMessage }
+  | { type: 'SET_PHASE'; phase: Phase }
+  | { type: 'UPDATE_SESSION'; session: Session; segmentChanged: boolean }
+  | { type: 'SET_CONSTELLATION'; data: ConstellationData }
+  | { type: 'LOADING_DONE' }
+  | { type: 'VIEW_SEGMENT'; index: number; messages: ChatMessage[] }
+  | { type: 'RETURN_TO_CURRENT'; messages: ChatMessage[] };
+
+// ── Reducer ──
+
+const initialState: SessionState = {
+  session: null,
+  messages: [],
+  phase: 'idle',
+  loading: false,
+  error: null,
+  errorPhase: null,
+  errorIsNetwork: false,
+  errorCount: 0,
+  constellation: null,
+  viewingSegmentIndex: null,
+};
+
+function reducer(state: SessionState, action: Action): SessionState {
+  switch (action.type) {
+    case 'LOAD_START':
+      return { ...state, loading: true, error: null };
+    case 'LOAD_SESSION':
+      return {
+        ...state,
+        session: action.session,
+        phase: action.session.phase,
+        messages: action.messages,
+        loading: false,
+        error: null,
+        errorPhase: null,
+        errorIsNetwork: false,
+        errorCount: 0,
+      };
+    case 'SET_ERROR':
+      return {
+        ...state,
+        error: action.error,
+        errorPhase: action.phase,
+        errorIsNetwork: action.isNetwork,
+        errorCount: state.errorCount + 1,
+        loading: false,
+      };
+    case 'CLEAR_ERROR':
+      return { ...state, error: null, errorPhase: null, errorIsNetwork: false };
+    case 'ADD_MESSAGE':
+      return { ...state, messages: [...state.messages, action.message] };
+    case 'SET_PHASE':
+      return { ...state, phase: action.phase };
+    case 'UPDATE_SESSION': {
+      const next: SessionState = {
+        ...state,
+        session: action.session,
+        phase: action.session.phase,
+      };
+      if (action.segmentChanged) {
+        next.messages = hydrateMessages(action.session);
+      }
+      return next;
+    }
+    case 'SET_CONSTELLATION':
+      return { ...state, constellation: action.data };
+    case 'LOADING_DONE':
+      return { ...state, loading: false };
+    case 'VIEW_SEGMENT':
+      return { ...state, viewingSegmentIndex: action.index, messages: action.messages };
+    case 'RETURN_TO_CURRENT':
+      return { ...state, viewingSegmentIndex: null, messages: action.messages };
+    default:
+      return state;
+  }
+}
+
+// ── Helpers ──
+
+function makeId(): string {
+  return `msg-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function hydrateMessages(session: Session): ChatMessage[] {
+  const state = session.segment_states?.[session.current_segment_index];
+  return hydrateSegmentMessages(state);
+}
+
+function hydrateSegmentMessages(state: SegmentState | undefined): ChatMessage[] {
+  if (!state?.messages?.length) return [];
+  return state.messages.map((m) => ({
+    id: m.id || makeId(),
+    role: m.role,
+    content: m.content,
+    phase: m.phase,
+    metadata: m.metadata,
+  }));
+}
+
+function isNetworkError(e: unknown): boolean {
+  if (e instanceof TypeError && /fetch|network|abort/i.test(e.message)) return true;
+  if (e instanceof Error && /ERR_NETWORK|ECONNREFUSED|Failed to fetch/i.test(e.message)) return true;
+  return false;
+}
+
+function errorMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+// ── Hook ──
+
+export interface UseSessionReturn {
+  session: Session | null;
+  messages: ChatMessage[];
+  phase: Phase;
+  loading: boolean;
+  error: string | null;
+  errorPhase: Phase | null;
+  errorIsNetwork: boolean;
+  errorCount: number;
+  constellation: ConstellationData | null;
+  viewingSegmentIndex: number | null;
+
   loadSession: (id: string) => Promise<void>;
+  refreshSessionSilent: () => Promise<void>;
   submitPreview: (prediction: string) => Promise<void>;
   skipPreviewPhase: () => Promise<void>;
   startProbe: () => Promise<void>;
   sendAnswer: (content: string) => Promise<AnswerResponse>;
   sendDiscuss: (content: string) => Promise<DiscussResponse>;
+  advanceSegment: (trigger?: 'user_advance' | 'auto_timeout') => Promise<void>;
   startChallenge: () => Promise<void>;
   sendChallenge: (content: string) => Promise<void>;
+  finishChallenge: () => Promise<void>;
   skipChallengePhase: () => Promise<void>;
-  constellation: ConstellationData | null;
   refreshConstellation: () => Promise<void>;
-}
-
-let msgCounter = 0;
-function makeId() {
-  return `msg-${++msgCounter}-${Date.now()}`;
-}
-
-function hydrateMessages(session: Session): ChatMessage[] {
-  const state = session.segment_states?.[session.current_segment_index];
-  if (!state?.messages?.length) return [];
-  return state.messages.map((message) => ({
-    id: message.id || makeId(),
-    role: message.role,
-    content: message.content,
-    phase: message.phase,
-    metadata: message.metadata,
-  }));
+  viewSegment: (index: number) => void;
+  returnToCurrentSegment: () => void;
 }
 
 export function useSession(): UseSessionReturn {
-  const [session, setSession] = useState<Session | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [constellation, setConstellation] = useState<ConstellationData | null>(null);
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const sessionIdRef = useRef<string | null>(null);
 
-  const addMessage = useCallback((role: ChatMessage['role'], content: string, msgPhase: Phase, metadata?: Record<string, unknown>) => {
-    setMessages(prev => [...prev, { id: makeId(), role, content, phase: msgPhase, metadata }]);
+  // session ID를 ref로 추적하여 stale closure 방지
+  if (state.session) {
+    sessionIdRef.current = state.session.id;
+  }
+
+  const getSessionId = (): string => {
+    const id = sessionIdRef.current;
+    if (!id) throw new Error('No active session');
+    return id;
+  };
+
+  const addMsg = useCallback((role: ChatMessage['role'], content: string, phase: Phase, metadata?: Record<string, unknown>) => {
+    dispatch({ type: 'ADD_MESSAGE', message: { id: makeId(), role, content, phase, metadata } });
+  }, []);
+
+  const refreshSession = useCallback(async (prevSegIdx?: number) => {
+    const id = sessionIdRef.current;
+    if (!id) return;
+    const s = await api.getSession(id);
+    const segmentChanged = prevSegIdx !== undefined
+      ? s.current_segment_index !== prevSegIdx
+      : false;
+    dispatch({ type: 'UPDATE_SESSION', session: s, segmentChanged });
+  }, []);
+
+  const refreshConstellation = useCallback(async () => {
+    const id = sessionIdRef.current;
+    if (!id) return;
+    try {
+      const data = await api.getConstellation(id);
+      dispatch({ type: 'SET_CONSTELLATION', data });
+    } catch {
+      // constellation 실패는 무시
+    }
   }, []);
 
   const loadSession = useCallback(async (id: string) => {
-    setLoading(true);
-    setError(null);
+    dispatch({ type: 'LOAD_START' });
     try {
+      sessionIdRef.current = id;
       const s = await api.getSession(id);
-      setSession(s);
-      setPhase(s.phase);
-      setMessages(hydrateMessages(s));
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
+      dispatch({ type: 'LOAD_SESSION', session: s, messages: hydrateMessages(s) });
+    } catch (e: unknown) {
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'idle', isNetwork: isNetworkError(e) });
     }
   }, []);
 
-  const refreshSession = useCallback(async () => {
-    if (!session) return;
-    const s = await api.getSession(session.id);
-    setSession(s);
-    setPhase(s.phase);
-    setMessages(hydrateMessages(s));
-  }, [session]);
+  /** Pending polling 전용 — loading 상태를 변경하지 않고 세션만 갱신. */
+  const refreshSessionSilent = useCallback(async () => {
+    const id = sessionIdRef.current;
+    if (!id) return;
+    try {
+      const s = await api.getSession(id);
+      dispatch({ type: 'LOAD_SESSION', session: s, messages: hydrateMessages(s) });
+    } catch {
+      // polling 실패는 무시 — 다음 interval에서 재시도
+    }
+  }, []);
 
   const submitPreview = useCallback(async (prediction: string) => {
-    if (!session) return;
-    setLoading(true);
+    dispatch({ type: 'LOAD_START' });
     try {
-      addMessage('user', prediction, 'preview');
-      await api.savePreview(session.id, prediction);
-      setPhase('probing');
+      const id = getSessionId();
+      const segId = state.session?.segments[state.session.current_segment_index]?.id ?? 0;
+      addMsg('user', prediction, 'preview');
+      await api.savePreview(id, prediction);
+      api.logEvent(id, 'preview_submitted', segId).catch(() => {});
+      dispatch({ type: 'SET_PHASE', phase: 'probing' });
       await refreshSession();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'preview', isNetwork: isNetworkError(e) });
     } finally {
-      setLoading(false);
+      dispatch({ type: 'LOADING_DONE' });
     }
-  }, [session, addMessage, refreshSession]);
+  }, [addMsg, refreshSession, state.session]);
 
   const skipPreviewPhase = useCallback(async () => {
-    if (!session) return;
-    await api.skipPreview(session.id);
-    setPhase('probing');
-    await refreshSession();
-  }, [session, refreshSession]);
+    dispatch({ type: 'LOAD_START' });
+    try {
+      const id = getSessionId();
+      const segId = state.session?.segments[state.session.current_segment_index]?.id ?? 0;
+      await api.skipPreview(id);
+      api.logEvent(id, 'preview_skipped', segId).catch(() => {});
+      dispatch({ type: 'SET_PHASE', phase: 'probing' });
+      await refreshSession();
+    } catch (e: unknown) {
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'preview', isNetwork: isNetworkError(e) });
+    } finally {
+      dispatch({ type: 'LOADING_DONE' });
+    }
+  }, [refreshSession, state.session]);
 
   const startProbe = useCallback(async () => {
-    if (!session) return;
-    setLoading(true);
+    dispatch({ type: 'LOAD_START' });
     try {
-      const probe = await api.getProbe(session.id);
-      addMessage('assistant', probe.question, 'probing');
-      setPhase('probing');
-    } catch (e: any) {
-      setError(e.message);
+      const probe = await api.getProbe(getSessionId());
+      addMsg('assistant', probe.question, 'probing');
+      dispatch({ type: 'SET_PHASE', phase: 'probing' });
+    } catch (e: unknown) {
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'probing', isNetwork: isNetworkError(e) });
     } finally {
-      setLoading(false);
+      dispatch({ type: 'LOADING_DONE' });
     }
-  }, [session, addMessage]);
+  }, [addMsg]);
 
   const sendAnswer = useCallback(async (content: string): Promise<AnswerResponse> => {
-    if (!session) throw new Error('No session');
-    setLoading(true);
+    dispatch({ type: 'LOAD_START' });
     try {
-      addMessage('user', content, 'probing');
-      const result = await api.submitAnswer(session.id, content);
+      const id = getSessionId();
+      addMsg('user', content, 'probing');
+      const result = await api.submitAnswer(id, content);
 
       if (result.needs_reanswer && result.hint) {
-        addMessage('assistant', result.hint, 'hinting');
-        setPhase('hinting');
+        addMsg('assistant', result.hint, 'hinting');
+        dispatch({ type: 'SET_PHASE', phase: 'hinting' });
       } else if (result.delivery) {
-        addMessage('assistant', result.delivery, 'delivering');
-        setPhase('discussing');
+        addMsg('assistant', result.delivery, 'delivering');
+        dispatch({ type: 'SET_PHASE', phase: 'discussing' });
+        const segId = state.session?.segments[state.session.current_segment_index]?.id ?? 0;
+        api.logEvent(id, 'discuss_entered', segId).catch(() => {});
       }
 
-      await refreshSession();
+      const prevIdx = state.session?.current_segment_index;
+      await refreshSession(prevIdx);
       return result;
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'probing', isNetwork: isNetworkError(e) });
       throw e;
     } finally {
-      setLoading(false);
+      dispatch({ type: 'LOADING_DONE' });
     }
-  }, [session, addMessage, refreshSession]);
+  }, [addMsg, refreshSession, state.session?.current_segment_index]);
 
   const sendDiscuss = useCallback(async (content: string): Promise<DiscussResponse> => {
-    if (!session) throw new Error('No session');
-    setLoading(true);
+    dispatch({ type: 'LOAD_START' });
     try {
-      addMessage('user', content, 'discussing');
-      const result = await api.discuss(session.id, content);
+      const id = getSessionId();
+      addMsg('user', content, 'discussing');
+      const result = await api.discuss(id, content);
 
-      addMessage('assistant', result.reply, 'discussing', {
+      addMsg('assistant', result.reply, 'discussing', {
         cross_segment_link: result.cross_segment_link,
       });
 
       if (result.end_segment) {
-        await refreshSession();
+        const prevIdx = state.session?.current_segment_index;
+        await refreshSession(prevIdx);
         await refreshConstellation();
       }
 
-      setPhase(result.phase as Phase);
+      dispatch({ type: 'SET_PHASE', phase: result.phase as Phase });
       return result;
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'discussing', isNetwork: isNetworkError(e) });
       throw e;
     } finally {
-      setLoading(false);
+      dispatch({ type: 'LOADING_DONE' });
     }
-  }, [session, addMessage, refreshSession]);
+  }, [addMsg, refreshSession, refreshConstellation, state.session?.current_segment_index]);
+
+  const advanceSegment = useCallback(async (trigger: 'user_advance' | 'auto_timeout' = 'user_advance') => {
+    dispatch({ type: 'LOAD_START' });
+    try {
+      const id = getSessionId();
+      const segId = state.session?.segments[state.session.current_segment_index]?.id ?? 0;
+      api.logEvent(id, 'segment_advance', segId, { trigger }).catch(() => {});
+      const prevIdx = state.session?.current_segment_index;
+      await api.nextSegment(id);
+      await refreshSession(prevIdx);
+      await refreshConstellation();
+    } catch (e: unknown) {
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'discussing', isNetwork: isNetworkError(e) });
+    } finally {
+      dispatch({ type: 'LOADING_DONE' });
+    }
+  }, [refreshSession, refreshConstellation, state.session?.current_segment_index]);
 
   const startChallenge = useCallback(async () => {
-    if (!session) return;
-    setLoading(true);
+    dispatch({ type: 'LOAD_START' });
     try {
-      const { question } = await api.getChallenge(session.id);
-      addMessage('assistant', question, 'challenge_prompt');
-      setPhase('challenge_prompt');
-    } catch (e: any) {
-      setError(e.message);
+      const { question } = await api.getChallenge(getSessionId());
+      addMsg('assistant', question, 'challenge_prompt');
+      dispatch({ type: 'SET_PHASE', phase: 'challenge_prompt' });
+    } catch (e: unknown) {
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'challenge_prompt', isNetwork: isNetworkError(e) });
     } finally {
-      setLoading(false);
+      dispatch({ type: 'LOADING_DONE' });
     }
-  }, [session, addMessage]);
+  }, [addMsg]);
 
   const sendChallenge = useCallback(async (content: string) => {
-    if (!session) return;
-    setLoading(true);
+    dispatch({ type: 'LOAD_START' });
     try {
-      addMessage('user', content, 'challenge_prompt');
-      const result = await api.submitChallenge(session.id, content);
-      addMessage('assistant', result.feedback, 'challenge_feedback');
-      setPhase(result.phase as Phase);
-      await refreshSession();
-    } catch (e: any) {
-      setError(e.message);
+      const id = getSessionId();
+      addMsg('user', content, 'challenge_prompt');
+      const result = await api.submitChallenge(id, content);
+      addMsg('assistant', result.feedback, 'challenge_feedback');
+      dispatch({ type: 'SET_PHASE', phase: result.phase as Phase });
+    } catch (e: unknown) {
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'challenge_prompt', isNetwork: isNetworkError(e) });
     } finally {
-      setLoading(false);
+      dispatch({ type: 'LOADING_DONE' });
     }
-  }, [session, addMessage, refreshSession]);
+  }, [addMsg]);
+
+  const finishChallenge = useCallback(async () => {
+    dispatch({ type: 'LOAD_START' });
+    try {
+      const id = getSessionId();
+      const prevIdx = state.session?.current_segment_index;
+      await api.finishChallenge(id);
+      await refreshSession(prevIdx);
+      await refreshConstellation();
+    } catch (e: unknown) {
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'challenge_feedback', isNetwork: isNetworkError(e) });
+    } finally {
+      dispatch({ type: 'LOADING_DONE' });
+    }
+  }, [refreshSession, refreshConstellation, state.session?.current_segment_index]);
 
   const skipChallengePhase = useCallback(async () => {
-    if (!session) return;
-    await api.skipChallenge(session.id);
-    await refreshSession();
-  }, [session, refreshSession]);
-
-  const refreshConstellation = useCallback(async () => {
-    if (!session) return;
+    dispatch({ type: 'LOAD_START' });
     try {
-      const data = await api.getConstellation(session.id);
-      setConstellation(data);
-    } catch {
-      // silent fail
+      const id = getSessionId();
+      const prevIdx = state.session?.current_segment_index;
+      await api.skipChallenge(id);
+      await refreshSession(prevIdx);
+    } catch (e: unknown) {
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'challenge_prompt', isNetwork: isNetworkError(e) });
+    } finally {
+      dispatch({ type: 'LOADING_DONE' });
     }
-  }, [session]);
+  }, [refreshSession, state.session?.current_segment_index]);
+
+  const viewSegment = useCallback((index: number) => {
+    const s = state.session;
+    if (!s) return;
+    const st = s.segment_states[index];
+    if (!st?.completed) return;
+    const msgs = hydrateSegmentMessages(st);
+    dispatch({ type: 'VIEW_SEGMENT', index, messages: msgs });
+  }, [state.session]);
+
+  const returnToCurrentSegment = useCallback(() => {
+    const s = state.session;
+    if (!s) return;
+    const msgs = hydrateMessages(s);
+    dispatch({ type: 'RETURN_TO_CURRENT', messages: msgs });
+  }, [state.session]);
 
   return {
-    session,
-    messages,
-    phase,
-    loading,
-    error,
+    session: state.session,
+    messages: state.messages,
+    phase: state.phase,
+    loading: state.loading,
+    error: state.error,
+    errorPhase: state.errorPhase,
+    errorIsNetwork: state.errorIsNetwork,
+    errorCount: state.errorCount,
+    constellation: state.constellation,
+    viewingSegmentIndex: state.viewingSegmentIndex,
     loadSession,
+    refreshSessionSilent,
     submitPreview,
     skipPreviewPhase,
     startProbe,
     sendAnswer,
     sendDiscuss,
+    advanceSegment,
     startChallenge,
     sendChallenge,
+    finishChallenge,
     skipChallengePhase,
-    constellation,
     refreshConstellation,
+    viewSegment,
+    returnToCurrentSegment,
   };
 }

@@ -1,0 +1,274 @@
+# Ralph Progress Log
+Started: 2026-04-03
+---
+
+## Codebase Patterns
+- React 19 + Vite 6 + Tailwind CSS v4 + motion/react (framer-motion 후속)
+- Python FastAPI 백엔드, Claude CLI subprocess (`claude -p`) 기반
+- TypeScript strict mode (tsconfig.json: strict: true, noImplicitAny: true)
+- useReducer 패턴 사용 (src/hooks/useSession.ts) — useState/useCallback 대신
+- API 레이어: src/api.ts → Vite proxy → localhost:8000/api
+- 디자인 토큰: src/index.css @theme 블록 (CSS variables)
+- 한국어 UI, 한자어 기반 학술 어휘 (구어적 비유 금지)
+- 게이미피케이션 §G-1~G-7 전체 백엔드 구현 완료, 프론트엔드 일부 미완성
+- ErrorBoundary: src/components/ui/ErrorBoundary.tsx — 모든 화면 래핑
+- 컴포넌트 구조: src/components/ (DashboardScreen, LearningScreen, ArchiveScreen, etc.)
+- Phase 상태 머신: idle→segmenting→preview→probing→hinting→analyzing→delivering→discussing→compressing→challenge_prompt→challenge_feedback→complete
+- Bloom 레벨 숫자는 사용자에게 노출 금지 (§G-6). 깊이 게이지 서술적 레이블만 사용: 표면 탐색, 구조 파악, 핵심 도달, 심층 연결
+- 빌드 확인 명령: npx tsc --noEmit && npx vite build
+- SessionListItem 필드 추가 시 server/main.py list_sessions + src/types.ts 양쪽 동기화 필수
+- 반응형 모바일: md: prefix로 데스크탑 전용 표시, fixed+z-40으로 slide-over 패널 구현
+- useSession reducer 변경 시 4곳 동기화: initialState, Action union, reducer switch, UseSessionReturn interface
+- 타이머/인터벌 관리: useRef로 ID 보관, useCallback으로 clear 함수 만들고, useEffect return에서 cleanup 필수
+- ChatMessage 타입은 src/hooks/useSession.ts에서 export — types.ts의 SegmentState.messages와 다름 (timestamp 없음)
+- 하위 컴포넌트 분리는 src/components/learning/ 디렉토리에 배치
+- KPI 이벤트 로깅: api.logEvent(sessionId, eventType, segmentId) — fire-and-forget (.catch(() => {}))
+- 백엔드 Pydantic 요청 모델은 server/models.py에 정의 (main.py에서 직접 정의 금지)
+- KPI 비율 계산은 Session @property로 구현 — get_session 응답에 포함, events 기반 집계
+- events 직렬화 시 metadata 필드 포함 필수 — trigger 등 이벤트 메타데이터 보존
+- SET_ERROR dispatch 시 반드시 phase + isNetwork 포함 — errorPhase 기반 phase별 재시도 로직 연결됨
+- React 19 + jsx: "react-jsx"에서는 JSX만 쓰는 파일에 React default import 불필요 (React.ChangeEvent 등 네임스페이스 참조 시만 필요)
+- 빌드 도구(@tailwindcss/vite, @vitejs/plugin-react, vite)는 devDependencies에 배치
+---
+
+## 2026-04-03 - US-001
+- LearningScreen 3패널 레이아웃을 반응형으로 변환
+- md(768px) 이하에서 좌측 세그먼트 사이드바 숨김 → 햄버거 버튼(Menu)으로 slide-over 표시
+- md 이하에서 우측 통계 사이드바 숨김 → PanelRightOpen 버튼으로 slide-over 표시
+- 오버레이(bg-black/40) 클릭 시 양쪽 사이드바 닫기
+- 채팅 영역이 모바일에서 전체 화면 차지
+- Files changed: src/components/LearningScreen.tsx
+- **Learnings for future iterations:**
+  - lucide-react에서 Menu, X, PanelRightOpen 아이콘 사용 가능
+  - Tailwind md: prefix로 데스크탑 전용 표시, 모바일은 fixed positioning + transform으로 slide-over 구현
+  - showSegmentSidebar / showStatsSidebar 상태로 모바일 토글 관리
+  - 오버레이는 md:hidden으로 모바일에서만 표시
+---
+
+## 2026-04-03 - US-002
+- 완료 세그먼트 클릭 시 해당 세그먼트 대화 이력을 읽기 전용으로 표시
+- useSession hook에 viewingSegmentIndex 상태 + viewSegment()/returnToCurrentSegment() 메서드 추가
+- 세그먼트 목록: 완료=클릭 가능, 현재=활성, 미완료+비현재=비활성(cursor-not-allowed)
+- 복습 중일 때 '복습 중' 배지 표시, 입력 비활성화, '현재 파트로 돌아가기' 버튼 표시
+- Files changed: src/hooks/useSession.ts, src/components/LearningScreen.tsx
+- **Learnings for future iterations:**
+  - useSession reducer에 새 상태 추가 시 initialState, Action type, reducer case, UseSessionReturn 인터페이스 4곳 모두 업데이트 필요
+  - hydrateMessages는 current_segment_index 기반이므로 특정 세그먼트 조회용 hydrateSegmentMessages 별도 함수 필요
+  - 세그먼트 목록을 div→button으로 변환 시 w-full text-left 필수 (기본 button은 center 정렬)
+  - isReviewing 플래그로 preview prompt, 다음 파트 버튼, 건너뛰기 버튼 등 모든 인터랙션 가드 필요
+---
+
+## 2026-04-03 - US-003
+- §G-6 대시보드 평균 깊이 바 표시 구현
+- 백엔드 list_sessions에 avg_depth_label 필드 추가 (completed segment_states의 level 평균 → DepthLabel)
+- 프론트엔드 SessionListItem 타입에 avg_depth_label 추가
+- DashboardScreen 세션 카드에 4단계 컬러 바 + 서술적 레이블 표시
+- Bloom 숫자 노출 없이 시각적 바만 표시 (§G-6 준수)
+- Files changed: server/main.py, src/types.ts, src/components/DashboardScreen.tsx
+- **Learnings for future iterations:**
+  - DepthLabel.from_level()은 백엔드 models.py에 이미 구현됨 — 프론트엔드에서 재구현 불필요, 백엔드에서 계산 후 전달
+  - SessionListItem에 필드 추가 시 server/main.py의 list_sessions와 src/types.ts 양쪽 동기화 필요
+  - Tailwind w-1/4, w-2/4, w-3/4, w-full로 4단계 바 너비 표현 가능
+  - avg_depth_label이 null일 수 있음 (완료된 세그먼트가 없는 경우) — 프론트엔드에서 조건부 렌더링 필요
+---
+
+## 2026-04-03 - US-004
+- 접근성(ARIA live region + 포커스 관리) 구현
+- 채팅 메시지 영역에 aria-live="polite" aria-relevant="additions" 적용
+- 세그먼트 전환 시 chatHeaderRef.focus()로 채팅 헤더에 포커스 자동 이동 (tabIndex={-1} + outline-none)
+- 아이콘 전용 버튼(메시지 전송, 세션 아카이브, 통합 도전 건너뛰기)에 aria-label 추가
+- Layout.tsx: 데스크탑/모바일 네비게이션에 role="tablist" + aria-label 추가
+- Layout.tsx: 모바일 메뉴 버튼에 aria-expanded + aria-controls 추가
+- Layout.tsx: 모바일 네비게이션 버튼에 role="tab" + aria-selected 추가
+- Layout.tsx: main에 role="tabpanel" 추가
+- Files changed: src/components/LearningScreen.tsx, src/components/Layout.tsx
+- **Learnings for future iterations:**
+  - 포커스 이동 대상 요소에 tabIndex={-1}과 outline-none 클래스를 함께 적용해야 자연스러운 포커스 관리 가능
+  - aria-live="polite"는 컨테이너에 한 번 설정하면 내부 DOM 추가 시 자동으로 스크린리더에 알림
+  - 아이콘 전용 버튼은 반드시 aria-label 필요, 텍스트가 포함된 버튼은 불필요
+  - aria-expanded + aria-controls 조합으로 토글 메뉴 접근성 보장
+---
+
+## 2026-04-03 - US-005
+- Discuss 단계에서 30초 무입력 시 자동으로 advanceSegment() 호출
+- 마지막 10초 동안 카운트다운 경고 배너 표시 (animate-pulse)
+- textarea onChange에서 타이머 리셋 — 사용자 타이핑 시 30초 재시작
+- phase 변경 또는 loading 시 타이머 자동 정리
+- Files changed: src/components/LearningScreen.tsx
+- **Learnings for future iterations:**
+  - useRef로 setTimeout/setInterval ID 관리 + useEffect cleanup으로 메모리 누수 방지
+  - discussDeadlineRef로 deadline timestamp 추적 — 매 interval에서 남은 시간 계산
+  - clearDiscussTimers를 useCallback으로 감싸서 startDiscussTimer, useEffect 양쪽에서 안전하게 호출
+  - handleInputChange 함수를 별도로 만들어 setInput + 타이머 리셋을 하나로 처리
+---
+
+## 2026-04-03 - US-006
+- ChatMessageList 컴포넌트를 src/components/learning/ChatMessageList.tsx로 추출
+- Preview prompt, 채팅 메시지 렌더링, 로딩 인디케이터, 세션 완료 메시지, 에러 표시를 포함
+- LearningScreen에서 해당 부분을 <ChatMessageList> 로 교체
+- forwardRef로 chatEndRef를 전달하여 auto-scroll 유지
+- Loader2 import를 LearningScreen에서 제거 (ChatMessageList로 이동)
+- Files changed: src/components/LearningScreen.tsx, src/components/learning/ChatMessageList.tsx (신규)
+- **Learnings for future iterations:**
+  - ChatMessage 타입은 useSession.ts에서 export됨 — types.ts의 SegmentState.messages 타입과 다름 (timestamp 필드 없음)
+  - forwardRef로 ref 전달 시 제네릭 타입 순서: forwardRef<RefType, PropsType>
+  - 컴포넌트 추출 시 import 정리 필수 — 추출된 코드에서만 사용하던 import를 원본에서 제거
+  - src/components/learning/ 디렉토리가 하위 컴포넌트 분리용으로 생성됨
+---
+
+## 2026-04-03 - US-007
+- ChatInput 컴포넌트를 src/components/learning/ChatInput.tsx로 추출
+- textarea, 전송 버튼, '다음 파트로' 버튼(discussing/challenge_feedback), discuss 카운트다운 경고 포함
+- LearningScreen에서 해당 부분을 <ChatInput> 로 교체
+- textarea auto-resize useEffect를 ChatInput으로 이동
+- ArrowUp, ChevronRight import를 LearningScreen에서 제거, textareaRef 제거
+- placeholderMap을 ChatInput 내부 상수(PLACEHOLDER_MAP)로 이동
+- Files changed: src/components/LearningScreen.tsx, src/components/learning/ChatInput.tsx (신규)
+- **Learnings for future iterations:**
+  - ChatInput은 controlled component — input 상태와 onChange는 부모에서 관리 (discuss 타이머 리셋 등 부모 로직과 연결)
+  - textareaRef는 ChatInput 내부에서만 사용 (auto-resize) — 부모에서 전달할 필요 없음
+  - 컴포넌트 추출 시 사용하지 않는 import(ArrowUp, ChevronRight)와 ref(textareaRef) 정리 필수
+---
+
+## 2026-04-03 - US-008
+- StatsSidebar 컴포넌트를 src/components/learning/StatsSidebar.tsx로 추출
+- 깊이 게이지, 예측 vs 실제, Knowledge Constellation, 아카이브 버튼을 포함
+- LearningScreen에서 해당 부분을 <StatsSidebar> 로 교체
+- 미사용 import 정리: BarChart3, Map, Save, MessageCircle, ConstellationView, SectionHeader 제거
+- Files changed: src/components/LearningScreen.tsx, src/components/learning/StatsSidebar.tsx (신규)
+- **Learnings for future iterations:**
+  - StatsSidebar는 DEPTH_LABELS를 자체 정의 — LearningScreen의 DEPTH_LABELS와 동일하지만 세그먼트 목록에서도 사용하므로 양쪽에 유지
+  - Preview vs Actual 섹션은 IIFE (즉시 실행 함수)로 조건부 렌더링 — 현재 세그먼트 또는 마지막 완료 세그먼트에서 예측 데이터를 검색
+  - 컴포넌트 추출 후 import 정리 시 6개 이상의 미사용 import가 발생할 수 있음 — lucide-react 아이콘 + UI 컴포넌트 + 하위 컴포넌트 모두 확인
+---
+
+## 2026-04-03 - US-009
+- §G-7 KPI 이벤트 로깅 — Preview 참여율 측정 구현
+- 백엔드: SessionEvent 모델 + Session.events 필드 + preview_participation_rate 프로퍼티 추가
+- 백엔드: POST /api/sessions/{id}/events 엔드포인트 추가, get_session 응답에 events/preview_participation_rate 포함
+- 프론트엔드: api.ts에 logEvent() 함수 추가
+- useSession.ts: submitPreview에서 'preview_submitted', skipPreviewPhase에서 'preview_skipped' 이벤트 발생
+- types.ts: SessionEvent 인터페이스 + Session에 events/preview_participation_rate 필드 추가
+- Files changed: server/models.py, server/main.py, src/api.ts, src/hooks/useSession.ts, src/types.ts
+- **Learnings for future iterations:**
+  - logEvent 호출은 fire-and-forget (.catch(() => {})) — KPI 로깅 실패가 주 동작을 방해하면 안 됨
+  - EventRequest/SessionEvent를 models.py에 정의하고 main.py에서 import — main.py에서 직접 Pydantic 모델 정의 피할 것
+  - preview_participation_rate는 Session 프로퍼티로 구현 — submitted / (submitted + skipped), 이벤트 없으면 None
+  - US-010도 같은 events 인프라 사용 가능 — logEvent(id, eventType, segmentId) 패턴 재사용
+---
+
+## 2026-04-03 - US-010
+- Discuss 진입률 + 자연 전환률 KPI 이벤트 로깅 구현
+- sendAnswer에서 discuss 진입 시 'discuss_entered' 이벤트 fire-and-forget 로깅
+- advanceSegment에 trigger 파라미터 추가 ('user_advance' | 'auto_timeout'), 'segment_advance' 이벤트 + metadata로 기록
+- LearningScreen 자동 종료 타이머에서 advanceSegment('auto_timeout') 호출
+- 백엔드 Session에 discuss_entry_rate, natural_transition_rate @property 추가
+- get_session 응답에 두 필드 포함, events 직렬화에 metadata 필드 추가
+- src/types.ts Session, SessionEvent 타입 업데이트
+- Files changed: src/hooks/useSession.ts, src/components/LearningScreen.tsx, src/types.ts, server/models.py, server/main.py
+- **Learnings for future iterations:**
+  - advanceSegment의 기본 trigger는 'user_advance' — ChatInput의 onAdvance 콜백은 파라미터 없이 호출하므로 기본값 활용
+  - segment_advance 이벤트의 metadata.trigger로 종료 원인 구분 — natural_transition_rate 계산에 사용
+  - discuss_entry_rate는 "시도된 세그먼트"(completed 또는 preview 이후 phase) 대비 discuss_entered 비율
+  - events 직렬화 시 metadata 포함 필수 — 없으면 백엔드 @property에서 metadata.get("trigger")이 항상 None
+---
+
+## 2026-04-03 - US-011
+- 세션 완료 시 아카이브 자동 안내 + 아카이브 화면 연결 구현
+- ChatMessageList 완료 화면에 '아카이브에서 확인' 버튼 (Archive 아이콘) + 'MD 내보내기' 버튼 (FileDown 아이콘) 추가
+- StatsSidebar의 '세션 아카이브' 버튼을 phase === 'complete' 시 활성화 (bg-primary, 클릭 가능)
+- LearningScreen에 exportMarkdown 함수 구현 (ArchiveScreen과 동일한 MD 내보내기 로직)
+- App.tsx에서 onNavigateArchive={() => setActiveTab('archive')} 전달
+- Files changed: src/App.tsx, src/components/LearningScreen.tsx, src/components/learning/ChatMessageList.tsx, src/components/learning/StatsSidebar.tsx
+- **Learnings for future iterations:**
+  - LearningScreen → ChatMessageList/StatsSidebar로 콜백 전달 시 optional prop (?:)으로 선언하면 기존 인터페이스 호환 유지 가능
+  - MD 내보내기 로직은 ArchiveScreen과 LearningScreen 양쪽에 존재 — 향후 공통 유틸로 추출 고려
+  - StatsSidebar에 phase prop 추가로 완료 상태 감지 — session.completed 대신 phase === 'complete' 사용 (실시간 상태 반영)
+---
+
+## 2026-04-03 - US-012
+- 에러 상태 복구 UX 개선 구현
+- useSession에 errorPhase, errorIsNetwork, errorCount 상태 추가
+- 모든 catch 블록에서 phase + isNetworkError 정보를 SET_ERROR에 포함
+- isNetworkError 헬퍼: TypeError/fetch/network/ECONNREFUSED 패턴 감지
+- ChatMessageList 에러 표시 개선: phase별 한글 레이블 (예: 'Probe 질문 생성 중 오류')
+- 네트워크 에러(WifiOff 아이콘 + 연결 확인 안내) vs 백엔드 에러(AlertTriangle + 서버 오류 안내) 구분
+- errorPhase 기반 재시도: onRetryPhase 맵으로 phase별 동작 재실행 (startProbe, startChallenge 등)
+- 3회 연속 실패 시 '대시보드로 복귀' 버튼 + 실패 횟수 안내 표시
+- LOAD_SESSION 성공 시 errorCount 리셋
+- Files changed: src/hooks/useSession.ts, src/components/LearningScreen.tsx, src/components/learning/ChatMessageList.tsx
+- **Learnings for future iterations:**
+  - SET_ERROR action에 phase/isNetwork 필드 추가 시 모든 dispatch 호출부를 빠짐없이 업데이트해야 함 (10+ 곳)
+  - errorCount는 SET_ERROR마다 +1, LOAD_SESSION 성공 시 0으로 리셋 — CLEAR_ERROR에서는 리셋하지 않음 (연속 실패 추적 유지)
+  - onRetryPhase는 Partial<Record<string, () => void>> — 모든 phase에 대해 정의할 필요 없음, 없으면 fallback으로 onRetry(세션 재로딩) 호출
+  - network 에러 감지: TypeError + "fetch"/"network" 패턴이 브라우저 fetch API의 네트워크 실패 시그니처
+---
+
+## 2026-04-03 - US-013
+- Constellation 엣지 스타일 개선: depends_on=실선+회색+화살표, cross_segment_link=점선+primary+펄스 애니메이션
+- SVG `<defs>`에 arrowhead marker 2종 추가 (arrow-dep, arrow-cross)
+- 엣지 호버 시 연결된 두 노드 이름을 툴팁으로 표시 (투명 히트영역 12px)
+- 빈 Constellation 상태 메시지를 '아직 탐구한 파트가 없어요'로 변경
+- Files changed: src/components/ConstellationView.tsx
+- **Learnings for future iterations:**
+  - SVG marker는 `<defs>` 블록 안에 정의하고 `markerEnd="url(#id)"` 로 참조
+  - SVG 엣지 호버를 위해 투명한 넓은 히트 영역 line(strokeWidth=12)을 실제 엣지 위에 겹쳐 배치
+  - useState + onMouseEnter/onMouseLeave로 SVG 요소 호버 상태 관리 (CSS :hover는 SVG line에 제한적)
+  - `orient="auto-start-reverse"` 로 화살표가 선 방향에 따라 자동 회전
+---
+
+## 2026-04-03 - US-014
+- 프론트엔드 통합 빌드 검증 + 미사용 import 정리 완료
+- 미사용 import 제거: ArchiveScreen의 Clock, StatsSidebar의 React, ChatMessageList의 React
+- package.json 정리: @types/express, autoprefixer 제거, 빌드 도구(@tailwindcss/vite, @vitejs/plugin-react, vite)를 devDependencies로 이동
+- vite 중복 의존성(dependencies + devDependencies 양쪽) 정리
+- 결과: tsc 에러 0개, vite build 성공 (JS 408KB < 500KB), 빌드 경고 0개
+- Files changed: src/components/ArchiveScreen.tsx, src/components/learning/StatsSidebar.tsx, src/components/learning/ChatMessageList.tsx, package.json
+- **Learnings for future iterations:**
+  - React 19 + jsx: "react-jsx" 설정에서는 JSX만 사용하는 파일에 React default import 불필요
+  - @tailwindcss/vite, @vitejs/plugin-react, vite는 빌드 도구이므로 devDependencies에 배치
+  - Tailwind v4는 Vite 플러그인(@tailwindcss/vite)으로 동작 — autoprefixer, postcss.config 불필요
+  - 미사용 import 확인: grep으로 import된 심볼이 import 라인 외에도 파일에 존재하는지 확인
+---
+
+## 2026-04-03 - US-015
+- CSS @import 순서 오류 수정 검증 — 이미 구현 완료 상태 확인
+- index.css에 @import url(...) 구문 없음 확인 (Tailwind @import "tailwindcss" 만 존재)
+- index.html에 Google Fonts <link> 태그 + preconnect 이미 존재 확인
+- Vite dev server 기동 시 @import 관련 PostCSS 경고 0개 확인
+- npx tsc --noEmit 통과, npx vite build 성공 (408KB)
+- Files changed: scripts/ralph/prd.json (passes: true 설정만)
+- **Learnings for future iterations:**
+  - 이전 작업에서 이미 수정된 사항일 수 있으므로 구현 전 현재 상태 확인 우선
+  - Tailwind v4에서 @import "tailwindcss"는 CSS @import가 아닌 Tailwind 지시문으로 처리됨
+  - Google Fonts는 항상 HTML <link> 태그로 로딩 — CSS @import url()은 PostCSS 호환성 문제 발생
+---
+
+## 2026-04-03 - US-016
+- 세션 생성 비동기화 검증 — 이미 구현 완료 상태 확인
+- POST /api/sessions: asyncio.create_task로 백그라운드 세그먼트 분할, 즉시 pending 응답 반환
+- _bootstrap_session: 성공 시 orchestrator.segment_script에서 setup_state='ready' 설정, 실패 시 setup_state='error' + error_message 기록
+- DashboardScreen: handleUpload에서 loadSessions() 호출 (onSessionStart 대신), pending 세션 5초 polling
+- npx tsc --noEmit 통과, npx vite build 성공 (408KB)
+- Files changed: scripts/ralph/prd.json (passes: true 설정만)
+- **Learnings for future iterations:**
+  - 이전 작업에서 이미 구현된 사항은 검증만 수행 — 불필요한 코드 변경 방지
+  - asyncio.create_task는 FastAPI의 이벤트 루프에서 실행되므로 별도 스레드/프로세스 불필요
+  - 백그라운드 작업 완료 감지는 프론트엔드 polling으로 해결 (WebSocket 대신 단순 구현)
+  - setup_state는 Session 모델 + list_sessions + get_session 3곳에서 일관되게 반환
+---
+
+## 2026-04-03 - US-017
+- E2E 학습 루프 동작 검증 — CLI 백엔드 정합성 확인 완료
+- _build_cmd에 --verbose 플래그 없음 확인
+- _CODE_BLOCK_RE 정규식으로 마크다운 코드블록(```json ... ```) 제거 확인
+- _parse_usage: snake_case(input_tokens) + camelCase(inputTokens) 모두 처리 확인
+- _parse_usage: modelUsage 중첩 구조에서도 토큰 수 추출 확인
+- npx tsc --noEmit 통과, npx vite build 성공 (408KB)
+- Files changed: scripts/ralph/prd.json (passes: true 설정만)
+- **Learnings for future iterations:**
+  - CLI 백엔드 구조: claude -p → --output-format json → stdout JSON 파싱 → result 필드 추출
+  - --verbose는 응답 구조를 변경하므로 절대 사용 금지 (이전 근본 오류 원인)
+  - Claude CLI 응답의 usage 위치가 버전마다 다를 수 있음 — 다중 fallback 패턴 필수
+  - E2E 검증은 실제 서버 기동 필요 — 코드 검증만으로는 런타임 오류 감지 불가 (수동 확인 필요)
+---

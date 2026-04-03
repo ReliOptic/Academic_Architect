@@ -93,6 +93,15 @@ export function discuss(sessionId: string, content: string) {
   });
 }
 
+// ── Next Segment ──
+
+export function nextSegment(sessionId: string) {
+  return request<{ ok: boolean; phase: string; current_segment_index: number }>(
+    `/sessions/${sessionId}/next-segment`,
+    { method: 'POST' },
+  );
+}
+
 // ── Challenge ──
 
 export function getChallenge(sessionId: string) {
@@ -106,9 +115,29 @@ export function submitChallenge(sessionId: string, content: string) {
   });
 }
 
+export function finishChallenge(sessionId: string) {
+  return request<{ ok: boolean; phase: string }>(`/sessions/${sessionId}/finish-challenge`, {
+    method: 'POST',
+  });
+}
+
 export function skipChallenge(sessionId: string) {
   return request<{ ok: boolean; phase: string }>(`/sessions/${sessionId}/skip-challenge`, {
     method: 'POST',
+  });
+}
+
+// ── Events (KPI) ──
+
+export function logEvent(
+  sessionId: string,
+  eventType: string,
+  segmentId: number = 0,
+  metadata: Record<string, unknown> = {},
+) {
+  return request<{ ok: boolean }>(`/sessions/${sessionId}/events`, {
+    method: 'POST',
+    body: JSON.stringify({ event_type: eventType, segment_id: segmentId, metadata }),
   });
 }
 

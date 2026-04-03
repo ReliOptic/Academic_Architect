@@ -4,19 +4,19 @@ import {
   Download,
   CheckCircle2,
   BookOpen,
-  Clock,
+  FileDown,
 } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
 import { PageHeader } from './ui/PageHeader';
 import { SectionHeader } from './ui/SectionHeader';
 import * as api from '../api';
-import type { SessionListItem } from '../types';
+import type { Session, SessionListItem, SegmentInfo, SegmentState } from '../types';
 
 export default function ArchiveScreen() {
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [sessionDetail, setSessionDetail] = useState<any>(null);
+  const [sessionDetail, setSessionDetail] = useState<Session | null>(null);
 
   useEffect(() => {
     api.listSessions().then((all) => {
@@ -35,6 +35,48 @@ export default function ArchiveScreen() {
     new Date(ts * 1000).toLocaleDateString('ko-KR', {
       year: 'numeric', month: 'short', day: 'numeric',
     });
+
+  const exportMarkdown = () => {
+    if (!sessionDetail) return;
+    const lines: string[] = [];
+    lines.push(`# ${sessionDetail.title}`);
+    lines.push('');
+    lines.push(`- 날짜: ${formatDate(sessionDetail.created_at)}`);
+    lines.push(`- 파트 수: ${sessionDetail.segments?.length || 0}`);
+    lines.push(`- 토큰: ${((sessionDetail.total_input_tokens || 0) + (sessionDetail.total_output_tokens || 0)).toLocaleString()}`);
+    lines.push(`- 비용: $${sessionDetail.cost_usd?.toFixed(4) || '0'}`);
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+
+    sessionDetail.segments?.forEach((seg: SegmentInfo, i: number) => {
+      const st = sessionDetail.segment_states?.[i];
+      lines.push(`## ${i + 1}. ${seg.title}`);
+      lines.push('');
+      lines.push(`- 핵심 개념: ${seg.core_concept}`);
+      if (st) {
+        lines.push(`- 탐구 깊이: ${st.depth_label}`);
+        if (st.preview_prediction) {
+          lines.push(`- 내 예측: ${st.preview_prediction}`);
+        }
+      }
+      lines.push('');
+      if (st?.summary) {
+        lines.push('### 요약');
+        lines.push('');
+        lines.push(st.summary);
+        lines.push('');
+      }
+    });
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${sessionDetail.title || 'archive'}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-12 py-20">
@@ -92,24 +134,32 @@ export default function ArchiveScreen() {
         <div className="lg:col-span-8 space-y-10">
           {sessionDetail ? (
             <div className="bg-surface-container-low p-12 rounded-2xl border border-outline-variant/10 space-y-8">
-              <div className="space-y-2">
-                <h2 className="headline-md">{sessionDetail.title}</h2>
-                <div className="flex gap-4 text-xs text-on-surface-variant">
-                  <span>{formatDate(sessionDetail.created_at)}</span>
-                  <span>{sessionDetail.segments?.length}개 파트</span>
-                  <span>토큰: {(sessionDetail.total_input_tokens + sessionDetail.total_output_tokens).toLocaleString()}</span>
-                  <span>${sessionDetail.cost_usd?.toFixed(4)}</span>
+              <div className="flex items-start justify-between">
+                <div className="space-y-2">
+                  <h2 className="headline-md">{sessionDetail.title}</h2>
+                  <div className="flex gap-4 text-xs text-on-surface-variant">
+                    <span>{formatDate(sessionDetail.created_at)}</span>
+                    <span>{sessionDetail.segments?.length}개 파트</span>
+                    <span>토큰: {(sessionDetail.total_input_tokens + sessionDetail.total_output_tokens).toLocaleString()}</span>
+                    <span>${sessionDetail.cost_usd?.toFixed(4)}</span>
+                  </div>
                 </div>
+                <button
+                  onClick={exportMarkdown}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:opacity-90 transition-opacity shrink-0"
+                >
+                  <FileDown size={14} /> MD 내보내기
+                </button>
               </div>
 
               <div className="space-y-4">
                 <SectionHeader icon={BarChart3} label="탐구 깊이 요약" />
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {sessionDetail.segment_states?.map((st: any, i: number) => {
-                    const seg = sessionDetail.segments?.[i];
+                  {sessionDetail.segment_states?.map((st: SegmentState, i: number) => {
+                    const seg: SegmentInfo | undefined = sessionDetail.segments?.[i];
                     return (
                       <div key={i} className="p-3 bg-surface-container-lowest rounded-xl border border-outline-variant/5">
-                        <div className="text-[9px] font-bold text-on-surface-variant uppercase mb-1 truncate">
+                        <div className="label-sm text-on-surface-variant mb-1 truncate">
                           {seg?.title}
                         </div>
                         <div className="text-sm font-bold text-primary">{st.depth_label}</div>
@@ -122,8 +172,8 @@ export default function ArchiveScreen() {
               <div className="space-y-4">
                 <SectionHeader icon={BookOpen} label="세그먼트별 요약" />
                 <div className="space-y-3">
-                  {sessionDetail.segment_states?.map((st: any, i: number) => {
-                    const seg = sessionDetail.segments?.[i];
+                  {sessionDetail.segment_states?.map((st: SegmentState, i: number) => {
+                    const seg: SegmentInfo | undefined = sessionDetail.segments?.[i];
                     return st.summary ? (
                       <div key={i} className="p-4 bg-surface-container-lowest rounded-xl border border-outline-variant/5">
                         <div className="text-xs font-bold mb-1">{seg?.title}</div>

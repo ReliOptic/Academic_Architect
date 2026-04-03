@@ -1,27 +1,28 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Activity,
-  ArrowUp,
-  BarChart3,
-  Map,
-  Save,
   SkipForward,
-  Loader2,
   Sparkles,
-  MessageCircle,
   AlertTriangle,
   CheckCircle2,
   Wrench,
+  ArrowLeft,
+  Menu,
+  X,
+  PanelRightOpen,
 } from 'lucide-react';
 import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
-import { SectionHeader } from './ui/SectionHeader';
 import { useSession } from '../hooks/useSession';
-import ConstellationView from './ConstellationView';
+import ChatMessageList from './learning/ChatMessageList';
+import ChatInput from './learning/ChatInput';
+import StatsSidebar from './learning/StatsSidebar';
 import type { Phase } from '../types';
 
 interface Props {
   sessionId: string | null;
+  onNavigateDashboard?: () => void;
+  onNavigateArchive?: () => void;
 }
 
 const DEPTH_LABELS: Record<string, { label: string; color: string }> = {
@@ -43,29 +44,48 @@ const PHASE_LABELS: Partial<Record<Phase, string>> = {
   complete: '완료',
 };
 
-export default function LearningScreen({ sessionId }: Props) {
+export default function LearningScreen({ sessionId, onNavigateDashboard, onNavigateArchive }: Props) {
   const {
     session,
     messages,
     phase,
     loading,
     error,
+    errorPhase,
+    errorIsNetwork,
+    errorCount,
     loadSession,
+    refreshSessionSilent,
     submitPreview,
     skipPreviewPhase,
     startProbe,
     sendAnswer,
     sendDiscuss,
+    advanceSegment,
     startChallenge,
     sendChallenge,
+    finishChallenge,
     skipChallengePhase,
     constellation,
     refreshConstellation,
+    viewingSegmentIndex,
+    viewSegment,
+    returnToCurrentSegment,
   } = useSession();
 
+  const isReviewing = viewingSegmentIndex !== null;
+
   const [input, setInput] = useState('');
+  const [showSegmentSidebar, setShowSegmentSidebar] = useState(false);
+  const [showStatsSidebar, setShowStatsSidebar] = useState(false);
+  const [discussCountdown, setDiscussCountdown] = useState<number | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatHeaderRef = useRef<HTMLHeadingElement>(null);
+  const probeStartedRef = useRef(false);
+  const challengeStartedRef = useRef(false);
+  const discussTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const discussIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const discussDeadlineRef = useRef<number | null>(null);
 
   // Load session + constellation
   useEffect(() => {
@@ -74,30 +94,113 @@ export default function LearningScreen({ sessionId }: Props) {
     }
   }, [sessionId, loadSession, refreshConstellation]);
 
+  // Pending 세션 자동 polling — setup_state가 'pending'이면 3초마다 silent 재조회
+  useEffect(() => {
+    if (!session || session.setup_state !== 'pending') return;
+    const timer = setInterval(() => {
+      refreshSessionSilent();
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [session?.setup_state, refreshSessionSilent]);
+
+  // Reset guards when segment changes
+  useEffect(() => {
+    probeStartedRef.current = false;
+    challengeStartedRef.current = false;
+  }, [session?.current_segment_index]);
+
   // Auto-start probe when entering probing phase with no probe question yet
   useEffect(() => {
-    if (phase === 'probing' && session && !loading) {
+    if (phase === 'probing' && session && !loading && !probeStartedRef.current) {
       const hasProbeMsg = messages.some(m => m.phase === 'probing' && m.role === 'assistant');
       if (!hasProbeMsg) {
+        probeStartedRef.current = true;
         startProbe();
       }
     }
-  }, [phase, session]);
+  }, [phase, session, loading, messages, startProbe]);
 
   // Auto-start challenge
   useEffect(() => {
-    if (phase === 'challenge_prompt' && session && !loading) {
+    if (phase === 'challenge_prompt' && session && !loading && !challengeStartedRef.current) {
       const hasChallenge = messages.some(m => m.phase === 'challenge_prompt' && m.role === 'assistant');
       if (!hasChallenge) {
+        challengeStartedRef.current = true;
         startChallenge();
       }
     }
-  }, [phase, session]);
+  }, [phase, session, loading, messages, startChallenge]);
 
   // Auto-scroll
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Focus chat header on segment transition (accessibility)
+  useEffect(() => {
+    if (session?.current_segment_index !== undefined) {
+      chatHeaderRef.current?.focus();
+    }
+  }, [session?.current_segment_index]);
+
+  // Discuss 30초 자동 종료 타이머
+  const clearDiscussTimers = useCallback(() => {
+    if (discussTimerRef.current) { clearTimeout(discussTimerRef.current); discussTimerRef.current = null; }
+    if (discussIntervalRef.current) { clearInterval(discussIntervalRef.current); discussIntervalRef.current = null; }
+    discussDeadlineRef.current = null;
+    setDiscussCountdown(null);
+  }, []);
+
+  const startDiscussTimer = useCallback(() => {
+    clearDiscussTimers();
+    const deadline = Date.now() + 30_000;
+    discussDeadlineRef.current = deadline;
+
+    // Countdown interval — update every second during last 10s
+    discussIntervalRef.current = setInterval(() => {
+      const remaining = Math.ceil((deadline - Date.now()) / 1000);
+      if (remaining <= 10 && remaining > 0) {
+        setDiscussCountdown(remaining);
+      } else if (remaining <= 0) {
+        setDiscussCountdown(null);
+      } else {
+        setDiscussCountdown(null);
+      }
+    }, 1000);
+
+    // Auto-advance at 30s
+    discussTimerRef.current = setTimeout(() => {
+      clearDiscussTimers();
+      advanceSegment('auto_timeout');
+    }, 30_000);
+  }, [clearDiscussTimers, advanceSegment]);
+
+  // Start/stop timer based on phase — only on phase entry, not on loading toggles
+  const discussPhaseEnteredRef = useRef(false);
+  useEffect(() => {
+    if (phase === 'discussing' && !isReviewing) {
+      if (!loading && !discussPhaseEnteredRef.current) {
+        discussPhaseEnteredRef.current = true;
+        startDiscussTimer();
+      }
+      if (loading) {
+        // Pause timer during LLM calls, will restart via input change
+        clearDiscussTimers();
+      }
+    } else {
+      discussPhaseEnteredRef.current = false;
+      clearDiscussTimers();
+    }
+    return () => clearDiscussTimers();
+  }, [phase, isReviewing, loading, startDiscussTimer, clearDiscussTimers]);
+
+  // Reset timer on input change (user typing)
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    if (phase === 'discussing' && !isReviewing && discussDeadlineRef.current) {
+      startDiscussTimer();
+    }
+  };
 
   const handleSend = async () => {
     const text = input.trim();
@@ -128,17 +231,52 @@ export default function LearningScreen({ sessionId }: Props) {
     }
   };
 
-  const currentSeg = session?.segments?.[session.current_segment_index];
-  const currentState = session?.segment_states?.[session.current_segment_index];
-  const isInputActive = ['preview', 'probing', 'hinting', 'discussing', 'challenge_prompt'].includes(phase);
+  const exportMarkdown = useCallback(() => {
+    if (!session) return;
+    const lines: string[] = [];
+    lines.push(`# ${session.title}`);
+    lines.push('');
+    lines.push(`- 날짜: ${new Date(session.created_at * 1000).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' })}`);
+    lines.push(`- 파트 수: ${session.segments?.length || 0}`);
+    lines.push(`- 토큰: ${((session.total_input_tokens || 0) + (session.total_output_tokens || 0)).toLocaleString()}`);
+    lines.push(`- 비용: $${session.cost_usd?.toFixed(4) || '0'}`);
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    session.segments?.forEach((seg, i) => {
+      const st = session.segment_states?.[i];
+      lines.push(`## ${i + 1}. ${seg.title}`);
+      lines.push('');
+      lines.push(`- 핵심 개념: ${seg.core_concept}`);
+      if (st) {
+        lines.push(`- 탐구 깊이: ${st.depth_label}`);
+        if (st.preview_prediction) lines.push(`- 내 예측: ${st.preview_prediction}`);
+      }
+      lines.push('');
+      if (st?.summary) {
+        lines.push('### 요약');
+        lines.push('');
+        lines.push(st.summary);
+        lines.push('');
+      }
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${session.title || 'archive'}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [session]);
 
-  const placeholderMap: Partial<Record<Phase, string>> = {
-    preview: '이 파트에서 뭘 다룰 것 같아?',
-    probing: '답변을 입력하세요...',
-    hinting: '다시 생각해서 답변해봐...',
-    discussing: '궁금한 거 있어? 없으면 "다음"',
-    challenge_prompt: '통합 질문에 답변해봐...',
-  };
+  const activeSeg = session?.segments?.[session.current_segment_index];
+  const activeState = session?.segment_states?.[session.current_segment_index];
+  const viewingSeg = isReviewing && viewingSegmentIndex !== null ? session?.segments?.[viewingSegmentIndex] : null;
+  const viewingState = isReviewing && viewingSegmentIndex !== null ? session?.segment_states?.[viewingSegmentIndex] : null;
+  const currentSeg = isReviewing ? viewingSeg : activeSeg;
+  const currentState = isReviewing ? viewingState : activeState;
+  const isInputActive = !isReviewing && ['preview', 'probing', 'hinting', 'discussing', 'challenge_prompt'].includes(phase);
+
 
   if (!sessionId) {
     return (
@@ -149,6 +287,14 @@ export default function LearningScreen({ sessionId }: Props) {
           <p className="text-sm text-on-surface-variant opacity-60">
             Dashboard에서 스크립트를 업로드하면 학습이 시작됩니다.
           </p>
+          {onNavigateDashboard && (
+            <button
+              onClick={onNavigateDashboard}
+              className="mt-4 px-6 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity"
+            >
+              대시보드로 이동
+            </button>
+          )}
         </div>
       </div>
     );
@@ -211,16 +357,45 @@ export default function LearningScreen({ sessionId }: Props) {
               </div>
             </div>
           </div>
+
+          {onNavigateDashboard && (
+            <button
+              onClick={onNavigateDashboard}
+              className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity"
+            >
+              <ArrowLeft size={16} /> 대시보드로 돌아가기
+            </button>
+          )}
         </Card>
       </div>
     );
   }
 
   return (
-    <div className="flex h-[calc(100vh-64px)] overflow-hidden">
+    <div className="flex h-[calc(100vh-64px)] overflow-hidden relative">
+      {/* Mobile overlay */}
+      {(showSegmentSidebar || showStatsSidebar) && (
+        <div
+          className="fixed inset-0 bg-black/40 z-30 md:hidden"
+          onClick={() => { setShowSegmentSidebar(false); setShowStatsSidebar(false); }}
+        />
+      )}
+
       {/* Sidebar — Segment List */}
-      <aside className="w-64 bg-surface-container-low border-r border-outline-variant/5 flex flex-col py-8">
+      <aside className={`
+        fixed inset-y-0 left-0 z-40 w-64 bg-surface-container-low border-r border-outline-variant/5 flex flex-col py-8
+        transform transition-transform duration-200 ease-in-out
+        ${showSegmentSidebar ? 'translate-x-0' : '-translate-x-full'}
+        md:static md:translate-x-0 md:z-auto
+      `}>
         <div className="px-6 mb-10">
+          <button
+            onClick={() => setShowSegmentSidebar(false)}
+            className="md:hidden mb-4 p-1.5 rounded-lg hover:bg-surface-container-high transition-colors"
+            aria-label="세그먼트 목록 닫기"
+          >
+            <X size={18} />
+          </button>
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-white shadow-ambient">
               <Activity size={20} />
@@ -240,15 +415,29 @@ export default function LearningScreen({ sessionId }: Props) {
           {session?.segments.map((seg, i) => {
             const st = session.segment_states[i];
             const isCurrent = i === session.current_segment_index;
+            const isViewing = viewingSegmentIndex === i;
+            const canClick = st?.completed && !isCurrent;
             return (
-              <div
+              <button
                 key={seg.id}
-                className={`px-6 py-3 text-sm transition-all ${
-                  isCurrent
+                type="button"
+                disabled={!canClick && !isCurrent}
+                onClick={() => {
+                  if (isCurrent && isReviewing) {
+                    returnToCurrentSegment();
+                  } else if (canClick) {
+                    viewSegment(i);
+                  }
+                  setShowSegmentSidebar(false);
+                }}
+                className={`w-full text-left px-6 py-3 text-sm transition-all ${
+                  isViewing
+                    ? 'bg-tertiary/10 text-tertiary border-r-4 border-tertiary'
+                    : isCurrent
                     ? 'bg-surface-container-lowest text-primary border-r-4 border-primary'
                     : st?.completed
-                    ? 'text-on-surface-variant/80'
-                    : 'text-on-surface-variant/40'
+                    ? 'text-on-surface-variant/80 hover:bg-surface-container-lowest/50 cursor-pointer'
+                    : 'text-on-surface-variant/40 cursor-not-allowed'
                 }`}
               >
                 <div className="flex items-center gap-2">
@@ -260,7 +449,7 @@ export default function LearningScreen({ sessionId }: Props) {
                     {st.depth_label}
                   </span>
                 )}
-              </div>
+              </button>
             );
           })}
         </nav>
@@ -287,17 +476,34 @@ export default function LearningScreen({ sessionId }: Props) {
 
       {/* Chat Area */}
       <section className="flex-1 flex flex-col bg-surface-container-low relative">
-        <header className="h-20 px-10 flex items-center justify-between bg-surface-container-lowest/50 backdrop-blur-md border-b border-outline-variant/5">
-          <div>
-            <div className="label-md text-[9px] text-on-surface-variant uppercase tracking-widest">
-              {currentSeg ? `파트 ${currentSeg.id}` : '대기 중'}
+        <header className="h-20 px-4 md:px-10 flex items-center justify-between bg-surface-container-lowest/50 backdrop-blur-md border-b border-outline-variant/5">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowSegmentSidebar(true)}
+              className="md:hidden p-2 rounded-lg hover:bg-surface-container-high transition-colors"
+              aria-label="세그먼트 목록 열기"
+            >
+              <Menu size={20} />
+            </button>
+            <div>
+              <div className="label-md text-[9px] text-on-surface-variant uppercase tracking-widest">
+                {currentSeg ? `파트 ${currentSeg.id}` : '대기 중'}
+              </div>
+              <h1 ref={chatHeaderRef} tabIndex={-1} className="headline-md outline-none">
+                {currentSeg?.title || '세션 로딩 중...'}
+              </h1>
             </div>
-            <h1 className="headline-md">
-              {currentSeg?.title || '세션 로딩 중...'}
-            </h1>
           </div>
           <div className="flex items-center gap-3">
-            {phase === 'preview' && (
+            {isReviewing && (
+              <button
+                onClick={returnToCurrentSegment}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-full label-md text-[10px] hover:opacity-90 transition-opacity"
+              >
+                <ArrowLeft size={12} /> 현재 파트로 돌아가기
+              </button>
+            )}
+            {!isReviewing && phase === 'preview' && (
               <button
                 onClick={skipPreviewPhase}
                 className="ghost-border px-4 py-2 rounded-full label-md text-[10px] text-on-surface-variant hover:text-primary transition-colors flex items-center gap-2"
@@ -305,197 +511,88 @@ export default function LearningScreen({ sessionId }: Props) {
                 <SkipForward size={12} /> 건너뛰기
               </button>
             )}
-            {phase === 'challenge_prompt' && (
+            {!isReviewing && phase === 'challenge_prompt' && (
               <button
                 onClick={skipChallengePhase}
+                aria-label="통합 도전 건너뛰기"
                 className="ghost-border px-4 py-2 rounded-full label-md text-[10px] text-on-surface-variant hover:text-primary transition-colors flex items-center gap-2"
               >
                 <SkipForward size={12} /> 건너뛰기
               </button>
             )}
-            <Badge variant={phase === 'complete' ? 'success' : 'primary'}>
-              {PHASE_LABELS[phase] || phase}
-            </Badge>
+            {isReviewing ? (
+              <Badge variant="surface">복습 중</Badge>
+            ) : (
+              <Badge variant={phase === 'complete' ? 'success' : 'primary'}>
+                {PHASE_LABELS[phase] || phase}
+              </Badge>
+            )}
+            <button
+              onClick={() => setShowStatsSidebar(true)}
+              className="md:hidden p-2 rounded-lg hover:bg-surface-container-high transition-colors"
+              aria-label="통계 패널 열기"
+            >
+              <PanelRightOpen size={20} />
+            </button>
           </div>
         </header>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-8 space-y-6">
-          {/* Preview prompt */}
-          {phase === 'preview' && messages.length === 0 && currentSeg && (
-            <div className="flex justify-center">
-              <div className="max-w-md text-center space-y-3 p-6 bg-surface-container-lowest rounded-2xl border border-outline-variant/10">
-                <Sparkles size={24} className="mx-auto text-primary/60" />
-                <h3 className="font-bold text-lg">다음 파트: {currentSeg.title}</h3>
-                <p className="text-sm text-on-surface-variant">
-                  이 파트에서 뭘 다룰 것 같아? 예측해봐!
-                </p>
-                <p className="text-[10px] text-on-surface-variant/50">
-                  또는 오른쪽 위 "건너뛰기" 버튼으로 바로 시작
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Chat messages */}
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-[70%] rounded-2xl px-5 py-3 ${
-                  msg.role === 'user'
-                    ? 'bg-primary text-white rounded-br-md'
-                    : 'bg-surface-container-lowest border border-outline-variant/10 rounded-bl-md'
-                }`}
-              >
-                {msg.metadata?.cross_segment_link && (
-                  <div className="flex items-center gap-1 mb-2 text-[10px] font-bold text-tertiary">
-                    <Sparkles size={10} /> 세그먼트 간 연결 발견!
-                  </div>
-                )}
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                <div className={`text-[9px] mt-2 ${
-                  msg.role === 'user' ? 'text-white/50' : 'text-on-surface-variant/40'
-                }`}>
-                  {PHASE_LABELS[msg.phase] || msg.phase}
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {/* Loading indicator */}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="bg-surface-container-lowest border border-outline-variant/10 rounded-2xl rounded-bl-md px-5 py-3">
-                <Loader2 size={16} className="animate-spin text-primary" />
-              </div>
-            </div>
-          )}
-
-          {/* Session complete */}
-          {phase === 'complete' && (
-            <div className="flex justify-center">
-              <div className="text-center space-y-3 p-6 bg-surface-container-lowest rounded-2xl border border-primary/20">
-                <h3 className="font-bold text-lg text-primary">탐구 완료!</h3>
-                <p className="text-sm text-on-surface-variant">
-                  총 {session?.segments?.length}개 파트를 탐구했습니다.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Error */}
-          {error && (
-            <div className="flex justify-center">
-              <div className="p-4 bg-error/10 text-error rounded-xl text-sm">
-                {error}
-              </div>
-            </div>
-          )}
-
-          <div ref={chatEndRef} />
-        </div>
+        <ChatMessageList
+          ref={chatEndRef}
+          messages={messages}
+          loading={loading}
+          error={error}
+          errorPhase={errorPhase}
+          errorIsNetwork={errorIsNetwork}
+          errorCount={errorCount}
+          phase={phase}
+          sessionId={sessionId}
+          currentSeg={currentSeg}
+          isReviewing={isReviewing}
+          totalSegments={session?.segments?.length || 0}
+          onRetry={() => loadSession(sessionId!)}
+          onRetryPhase={{
+            preview: () => submitPreview(''),
+            probing: startProbe,
+            hinting: startProbe,
+            discussing: () => advanceSegment(),
+            challenge_prompt: startChallenge,
+            challenge_feedback: () => finishChallenge(),
+          }}
+          onNavigateDashboard={onNavigateDashboard}
+          onNavigateArchive={onNavigateArchive}
+          onExportMarkdown={exportMarkdown}
+          phaseLabels={PHASE_LABELS}
+        />
 
         {/* Input Area */}
-        <div className="p-8">
-          <div className={`max-w-3xl mx-auto relative ${!isInputActive ? 'opacity-40 pointer-events-none' : ''}`}>
-            <textarea
-              ref={textareaRef}
-              className="w-full bg-surface-container-lowest ghost-border rounded-full px-8 py-4 pr-16 text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none"
-              placeholder={placeholderMap[phase] || '...'}
-              rows={1}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={!isInputActive || loading}
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || loading}
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 bg-primary text-white rounded-full flex items-center justify-center disabled:opacity-40 transition-opacity"
-            >
-              <ArrowUp size={20} />
-            </button>
-          </div>
-        </div>
+        <ChatInput
+          phase={phase}
+          loading={loading}
+          isReviewing={isReviewing}
+          isInputActive={isInputActive}
+          input={input}
+          discussCountdown={discussCountdown}
+          onInputChange={handleInputChange}
+          onKeyDown={handleKeyDown}
+          onSend={handleSend}
+          onAdvance={advanceSegment}
+          onFinishChallenge={finishChallenge}
+        />
       </section>
 
       {/* Stats Sidebar */}
-      <aside className="w-96 bg-surface border-l border-outline-variant/5 p-8 space-y-10 overflow-y-auto">
-        {/* Depth Gauge */}
-        <div className="space-y-4">
-          <SectionHeader icon={BarChart3} label="탐구 깊이" />
-          <Card variant="low" hover={false} className="p-6 space-y-6">
-            <div className="flex justify-between items-end">
-              <div>
-                <div className={`font-manrope text-4xl font-extrabold ${
-                  currentState?.completed
-                    ? DEPTH_LABELS[currentState.depth_label]?.color || ''
-                    : 'text-on-surface-variant'
-                }`}>
-                  {currentState?.depth_label || '대기'}
-                </div>
-                <div className="text-xs font-medium text-on-surface-variant">
-                  {currentSeg?.core_concept || ''}
-                </div>
-              </div>
-              <Badge variant={currentState?.completed ? 'success' : 'surface'}>
-                {currentState?.completed ? '완료' : '진행중'}
-              </Badge>
-            </div>
-            {/* Level trend bars */}
-            <div className="flex gap-1.5 h-2">
-              {session?.segment_states.map((st, i) => (
-                <div
-                  key={i}
-                  className={`flex-1 rounded-full transition-all ${
-                    st.completed
-                      ? st.level >= 4 ? 'bg-status-active' :
-                        st.level >= 3 ? 'bg-primary' :
-                        st.level >= 2 ? 'bg-tertiary' :
-                        'bg-on-surface-variant/30'
-                      : 'bg-surface-container-high'
-                  }`}
-                />
-              ))}
-            </div>
-          </Card>
-        </div>
-
-        {/* Preview vs Actual */}
-        {currentState?.preview_prediction && currentState?.completed && (
-          <div className="space-y-4">
-            <SectionHeader icon={MessageCircle} label="예측 vs 실제" />
-            <Card variant="lowest" hover={false} className="p-4 space-y-3">
-              <div>
-                <div className="text-[9px] font-bold text-on-surface-variant uppercase mb-1">내 예측</div>
-                <p className="text-xs text-on-surface-variant/70">{currentState.preview_prediction}</p>
-              </div>
-              <div>
-                <div className="text-[9px] font-bold text-primary uppercase mb-1">실제 내용</div>
-                <p className="text-xs">{currentSeg?.core_concept}</p>
-              </div>
-            </Card>
-          </div>
-        )}
-
-        {/* Knowledge Constellation (§G-2) */}
-        <div className="space-y-4">
-          <SectionHeader icon={Map} label="지식 별자리" />
-          <div className="h-64 bg-surface-container-lowest rounded-2xl border border-outline-variant/10 p-2">
-            <ConstellationView
-              data={constellation || { nodes: [], edges: [] }}
-              currentSegmentId={currentSeg?.id}
-            />
-          </div>
-        </div>
-
-        <button className="w-full py-4 bg-surface-container-high rounded-xl label-md text-[10px] text-on-surface-variant flex items-center justify-center gap-2 opacity-40 cursor-not-allowed">
-          <Save size={14} /> 세션 아카이브
-        </button>
-      </aside>
+      <StatsSidebar
+        show={showStatsSidebar}
+        onClose={() => setShowStatsSidebar(false)}
+        session={session}
+        currentState={currentState}
+        currentSeg={currentSeg}
+        constellation={constellation}
+        phase={phase}
+        onNavigateArchive={onNavigateArchive}
+      />
     </div>
   );
 }

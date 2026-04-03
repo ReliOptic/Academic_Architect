@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 
@@ -27,9 +28,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from server.config import settings
 from server.models import (
     DepthLabel,
+    EventRequest,
     Phase,
     PreviewRequest,
     Session,
+    SessionEvent,
     UserMessageRequest,
 )
 from server.llm.cli_backend import CLIBackend
@@ -68,9 +71,27 @@ def _get_orchestrator(session_id: str) -> Orchestrator:
 # ── 세션 CRUD ──
 
 
+async def _bootstrap_session(session_id: str, script_text: str) -> None:
+    """백그라운드에서 세그먼트 분할 실행."""
+    try:
+        session = session_store.load(session_id)
+        orch = Orchestrator(session, backend)
+        await orch.segment_script(script_text)
+        logger.info("Session bootstrap complete: %s (%d segments)", session_id, len(session.segments))
+    except Exception as exc:
+        logger.exception("Session bootstrap failed: %s", session_id)
+        try:
+            session = session_store.load(session_id)
+        except FileNotFoundError:
+            return
+        session.setup_state = "error"
+        session.error_message = str(exc)
+        session_store.save(session)
+
+
 @app.post("/api/sessions")
 async def create_session(file: UploadFile):
-    """스크립트 업로드 → 세그먼트 분할 → 세션 생성."""
+    """스크립트 업로드 → 즉시 응답 → 백그라운드에서 세그먼트 분할."""
     if not file.filename:
         raise HTTPException(400, "파일명이 없습니다")
 
@@ -85,33 +106,32 @@ async def create_session(file: UploadFile):
     )
     session_store.save(session)
 
-    orch = Orchestrator(session, backend)
-    try:
-        segments = await orch.segment_script(script_text)
-    except Exception as exc:
-        logger.exception("Session bootstrap failed: %s", session.id)
-        session.setup_state = "error"
-        session.error_message = str(exc)
-        session_store.save(session)
-        raise HTTPException(500, f"세션 초기화 실패: {exc}")
+    # 백그라운드에서 세그먼트 분할 시작 — HTTP 응답은 즉시 반환
+    asyncio.create_task(_bootstrap_session(session.id, script_text))
 
     return {
         "session_id": session.id,
         "title": session.title,
-        "segment_count": len(segments),
-        "setup_state": session.setup_state,
-        "segments": [
-            {"id": s.id, "title": s.title, "core_concept": s.core_concept}
-            for s in segments
-        ],
+        "segment_count": 0,
+        "setup_state": "pending",
+        "segments": [],
     }
 
 
 @app.get("/api/sessions")
 async def list_sessions():
     sessions = session_store.list_sessions()
-    return [
-        {
+    result = []
+    for s in sessions:
+        # 평균 깊이 계산 (§G-6: 숫자 아닌 서술적 레이블로 표시)
+        completed_states = [st for st in s.segment_states if st.completed]
+        if completed_states:
+            avg_level = sum(st.level_info.level for st in completed_states) / len(completed_states)
+            avg_depth_label = DepthLabel.from_level(round(avg_level)).value
+        else:
+            avg_depth_label = None
+
+        result.append({
             "id": s.id,
             "title": s.title,
             "created_at": s.created_at,
@@ -122,9 +142,9 @@ async def list_sessions():
             "phase": s.phase.value,
             "setup_state": s.setup_state,
             "error_message": s.error_message,
-        }
-        for s in sessions
-    ]
+            "avg_depth_label": avg_depth_label,
+        })
+    return result
 
 
 @app.get("/api/sessions/{session_id}")
@@ -149,6 +169,17 @@ async def get_session(session_id: str):
                 "completed": st.completed,
                 "preview_prediction": st.preview_prediction,
                 "summary": st.summary,
+                "messages": [
+                    {
+                        "id": m.id,
+                        "role": m.role.value,
+                        "content": m.content,
+                        "timestamp": m.timestamp,
+                        "phase": m.phase.value,
+                        "metadata": m.metadata,
+                    }
+                    for m in st.messages
+                ],
             }
             for st in s.segment_states
         ],
@@ -160,6 +191,18 @@ async def get_session(session_id: str):
         "total_output_tokens": s.total_output_tokens,
         "setup_state": s.setup_state,
         "error_message": s.error_message,
+        "events": [
+            {
+                "timestamp": e.timestamp,
+                "event_type": e.event_type,
+                "segment_id": e.segment_id,
+                "metadata": e.metadata,
+            }
+            for e in s.events
+        ],
+        "preview_participation_rate": s.preview_participation_rate,
+        "discuss_entry_rate": s.discuss_entry_rate,
+        "natural_transition_rate": s.natural_transition_rate,
     }
 
 
@@ -270,6 +313,21 @@ async def discuss(session_id: str, req: UserMessageRequest):
     return response
 
 
+# ── Next Segment (명시적 전환) ──
+
+
+@app.post("/api/sessions/{session_id}/next-segment")
+async def next_segment(session_id: str):
+    """Discuss에서 명시적으로 다음 세그먼트로 전환."""
+    orch = _get_orchestrator(session_id)
+    await orch.advance_from_discuss()
+    return {
+        "ok": True,
+        "phase": orch.session.phase.value,
+        "current_segment_index": orch.session.current_segment_index,
+    }
+
+
 # ── Challenge (§G-5) ──
 
 
@@ -283,16 +341,19 @@ async def get_challenge(session_id: str):
 @app.post("/api/sessions/{session_id}/challenge")
 async def submit_challenge(session_id: str, req: UserMessageRequest):
     orch = _get_orchestrator(session_id)
-
-    # challenge 질문은 현재 세션 상태에서 가져올 수 없으므로
-    # 프론트엔드가 질문과 함께 보내야 함 — 간소화를 위해 재생성
-    question = await orch.generate_challenge()
-    feedback = await orch.challenge_feedback(question, req.content)
-
+    feedback = await orch.challenge_feedback("", req.content)
     return {
         "feedback": feedback,
         "phase": orch.session.phase.value,
     }
+
+
+@app.post("/api/sessions/{session_id}/finish-challenge")
+async def finish_challenge(session_id: str):
+    """챌린지 피드백 확인 후 다음 세그먼트로 진행."""
+    orch = _get_orchestrator(session_id)
+    orch.finish_challenge()
+    return {"ok": True, "phase": orch.session.phase.value}
 
 
 @app.post("/api/sessions/{session_id}/skip-challenge")
@@ -310,6 +371,28 @@ async def get_constellation(session_id: str):
     orch = _get_orchestrator(session_id)
     data = orch.get_constellation()
     return data.model_dump()
+
+
+# ── Events (§G-7 KPI) ──
+
+
+
+@app.post("/api/sessions/{session_id}/events")
+async def log_event(session_id: str, req: EventRequest):
+    """KPI 이벤트 기록 — Preview 참여율, Discuss 전환률 등."""
+    try:
+        session = session_store.load(session_id)
+    except FileNotFoundError:
+        raise HTTPException(404, f"Session not found: {session_id}")
+
+    event = SessionEvent(
+        event_type=req.event_type,
+        segment_id=req.segment_id,
+        metadata=req.metadata,
+    )
+    session.events.append(event)
+    session_store.save(session)
+    return {"ok": True}
 
 
 # ── Health ──
