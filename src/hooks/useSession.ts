@@ -30,6 +30,9 @@ interface SessionState {
   phase: Phase;
   loading: boolean;
   error: string | null;
+  errorPhase: Phase | null;
+  errorIsNetwork: boolean;
+  errorCount: number;
   constellation: ConstellationData | null;
   viewingSegmentIndex: number | null;
 }
@@ -37,7 +40,7 @@ interface SessionState {
 type Action =
   | { type: 'LOAD_START' }
   | { type: 'LOAD_SESSION'; session: Session; messages: ChatMessage[] }
-  | { type: 'SET_ERROR'; error: string }
+  | { type: 'SET_ERROR'; error: string; phase: Phase; isNetwork: boolean }
   | { type: 'CLEAR_ERROR' }
   | { type: 'ADD_MESSAGE'; message: ChatMessage }
   | { type: 'SET_PHASE'; phase: Phase }
@@ -55,6 +58,9 @@ const initialState: SessionState = {
   phase: 'idle',
   loading: false,
   error: null,
+  errorPhase: null,
+  errorIsNetwork: false,
+  errorCount: 0,
   constellation: null,
   viewingSegmentIndex: null,
 };
@@ -71,11 +77,21 @@ function reducer(state: SessionState, action: Action): SessionState {
         messages: action.messages,
         loading: false,
         error: null,
+        errorPhase: null,
+        errorIsNetwork: false,
+        errorCount: 0,
       };
     case 'SET_ERROR':
-      return { ...state, error: action.error, loading: false };
+      return {
+        ...state,
+        error: action.error,
+        errorPhase: action.phase,
+        errorIsNetwork: action.isNetwork,
+        errorCount: state.errorCount + 1,
+        loading: false,
+      };
     case 'CLEAR_ERROR':
-      return { ...state, error: null };
+      return { ...state, error: null, errorPhase: null, errorIsNetwork: false };
     case 'ADD_MESSAGE':
       return { ...state, messages: [...state.messages, action.message] };
     case 'SET_PHASE':
@@ -126,6 +142,16 @@ function hydrateSegmentMessages(state: SegmentState | undefined): ChatMessage[] 
   }));
 }
 
+function isNetworkError(e: unknown): boolean {
+  if (e instanceof TypeError && /fetch|network|abort/i.test(e.message)) return true;
+  if (e instanceof Error && /ERR_NETWORK|ECONNREFUSED|Failed to fetch/i.test(e.message)) return true;
+  return false;
+}
+
+function errorMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 // ── Hook ──
 
 export interface UseSessionReturn {
@@ -134,6 +160,9 @@ export interface UseSessionReturn {
   phase: Phase;
   loading: boolean;
   error: string | null;
+  errorPhase: Phase | null;
+  errorIsNetwork: boolean;
+  errorCount: number;
   constellation: ConstellationData | null;
   viewingSegmentIndex: number | null;
 
@@ -201,7 +230,7 @@ export function useSession(): UseSessionReturn {
       const s = await api.getSession(id);
       dispatch({ type: 'LOAD_SESSION', session: s, messages: hydrateMessages(s) });
     } catch (e: unknown) {
-      dispatch({ type: 'SET_ERROR', error: e instanceof Error ? e.message : String(e) });
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'idle', isNetwork: isNetworkError(e) });
     }
   }, []);
 
@@ -228,7 +257,7 @@ export function useSession(): UseSessionReturn {
       dispatch({ type: 'SET_PHASE', phase: 'probing' });
       await refreshSession();
     } catch (e: unknown) {
-      dispatch({ type: 'SET_ERROR', error: e instanceof Error ? e.message : String(e) });
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'preview', isNetwork: isNetworkError(e) });
     } finally {
       dispatch({ type: 'LOADING_DONE' });
     }
@@ -244,7 +273,7 @@ export function useSession(): UseSessionReturn {
       dispatch({ type: 'SET_PHASE', phase: 'probing' });
       await refreshSession();
     } catch (e: unknown) {
-      dispatch({ type: 'SET_ERROR', error: e instanceof Error ? e.message : String(e) });
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'preview', isNetwork: isNetworkError(e) });
     } finally {
       dispatch({ type: 'LOADING_DONE' });
     }
@@ -257,7 +286,7 @@ export function useSession(): UseSessionReturn {
       addMsg('assistant', probe.question, 'probing');
       dispatch({ type: 'SET_PHASE', phase: 'probing' });
     } catch (e: unknown) {
-      dispatch({ type: 'SET_ERROR', error: e instanceof Error ? e.message : String(e) });
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'probing', isNetwork: isNetworkError(e) });
     } finally {
       dispatch({ type: 'LOADING_DONE' });
     }
@@ -284,8 +313,7 @@ export function useSession(): UseSessionReturn {
       await refreshSession(prevIdx);
       return result;
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      dispatch({ type: 'SET_ERROR', error: msg });
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'probing', isNetwork: isNetworkError(e) });
       throw e;
     } finally {
       dispatch({ type: 'LOADING_DONE' });
@@ -312,8 +340,7 @@ export function useSession(): UseSessionReturn {
       dispatch({ type: 'SET_PHASE', phase: result.phase as Phase });
       return result;
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      dispatch({ type: 'SET_ERROR', error: msg });
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'discussing', isNetwork: isNetworkError(e) });
       throw e;
     } finally {
       dispatch({ type: 'LOADING_DONE' });
@@ -331,7 +358,7 @@ export function useSession(): UseSessionReturn {
       await refreshSession(prevIdx);
       await refreshConstellation();
     } catch (e: unknown) {
-      dispatch({ type: 'SET_ERROR', error: e instanceof Error ? e.message : String(e) });
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'discussing', isNetwork: isNetworkError(e) });
     } finally {
       dispatch({ type: 'LOADING_DONE' });
     }
@@ -344,7 +371,7 @@ export function useSession(): UseSessionReturn {
       addMsg('assistant', question, 'challenge_prompt');
       dispatch({ type: 'SET_PHASE', phase: 'challenge_prompt' });
     } catch (e: unknown) {
-      dispatch({ type: 'SET_ERROR', error: e instanceof Error ? e.message : String(e) });
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'challenge_prompt', isNetwork: isNetworkError(e) });
     } finally {
       dispatch({ type: 'LOADING_DONE' });
     }
@@ -359,7 +386,7 @@ export function useSession(): UseSessionReturn {
       addMsg('assistant', result.feedback, 'challenge_feedback');
       dispatch({ type: 'SET_PHASE', phase: result.phase as Phase });
     } catch (e: unknown) {
-      dispatch({ type: 'SET_ERROR', error: e instanceof Error ? e.message : String(e) });
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'challenge_prompt', isNetwork: isNetworkError(e) });
     } finally {
       dispatch({ type: 'LOADING_DONE' });
     }
@@ -374,7 +401,7 @@ export function useSession(): UseSessionReturn {
       await refreshSession(prevIdx);
       await refreshConstellation();
     } catch (e: unknown) {
-      dispatch({ type: 'SET_ERROR', error: e instanceof Error ? e.message : String(e) });
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'challenge_feedback', isNetwork: isNetworkError(e) });
     } finally {
       dispatch({ type: 'LOADING_DONE' });
     }
@@ -388,7 +415,7 @@ export function useSession(): UseSessionReturn {
       await api.skipChallenge(id);
       await refreshSession(prevIdx);
     } catch (e: unknown) {
-      dispatch({ type: 'SET_ERROR', error: e instanceof Error ? e.message : String(e) });
+      dispatch({ type: 'SET_ERROR', error: errorMsg(e), phase: 'challenge_prompt', isNetwork: isNetworkError(e) });
     } finally {
       dispatch({ type: 'LOADING_DONE' });
     }
@@ -416,6 +443,9 @@ export function useSession(): UseSessionReturn {
     phase: state.phase,
     loading: state.loading,
     error: state.error,
+    errorPhase: state.errorPhase,
+    errorIsNetwork: state.errorIsNetwork,
+    errorCount: state.errorCount,
     constellation: state.constellation,
     viewingSegmentIndex: state.viewingSegmentIndex,
     loadSession,

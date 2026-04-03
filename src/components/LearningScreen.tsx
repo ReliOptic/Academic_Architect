@@ -51,6 +51,9 @@ export default function LearningScreen({ sessionId, onNavigateDashboard, onNavig
     phase,
     loading,
     error,
+    errorPhase,
+    errorIsNetwork,
+    errorCount,
     loadSession,
     refreshSessionSilent,
     submitPreview,
@@ -531,12 +534,24 @@ export default function LearningScreen({ sessionId, onNavigateDashboard, onNavig
           messages={messages}
           loading={loading}
           error={error}
+          errorPhase={errorPhase}
+          errorIsNetwork={errorIsNetwork}
+          errorCount={errorCount}
           phase={phase}
           sessionId={sessionId}
           currentSeg={currentSeg}
           isReviewing={isReviewing}
           totalSegments={session?.segments?.length || 0}
           onRetry={() => loadSession(sessionId!)}
+          onRetryPhase={{
+            preview: () => submitPreview(''),
+            probing: startProbe,
+            hinting: startProbe,
+            discussing: () => advanceSegment(),
+            challenge_prompt: startChallenge,
+            challenge_feedback: () => finishChallenge(),
+          }}
+          onNavigateDashboard={onNavigateDashboard}
           onNavigateArchive={onNavigateArchive}
           onExportMarkdown={exportMarkdown}
           phaseLabels={PHASE_LABELS}
