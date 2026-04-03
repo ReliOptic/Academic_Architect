@@ -175,11 +175,20 @@ export default function LearningScreen({ sessionId, onNavigateDashboard, onNavig
     }, 30_000);
   }, [clearDiscussTimers, advanceSegment]);
 
-  // Start/stop timer based on phase
+  // Start/stop timer based on phase — only on phase entry, not on loading toggles
+  const discussPhaseEnteredRef = useRef(false);
   useEffect(() => {
-    if (phase === 'discussing' && !isReviewing && !loading) {
-      startDiscussTimer();
+    if (phase === 'discussing' && !isReviewing) {
+      if (!loading && !discussPhaseEnteredRef.current) {
+        discussPhaseEnteredRef.current = true;
+        startDiscussTimer();
+      }
+      if (loading) {
+        // Pause timer during LLM calls, will restart via input change
+        clearDiscussTimers();
+      }
     } else {
+      discussPhaseEnteredRef.current = false;
       clearDiscussTimers();
     }
     return () => clearDiscussTimers();
