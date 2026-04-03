@@ -243,3 +243,17 @@ Started: 2026-04-03
   - Tailwind v4에서 @import "tailwindcss"는 CSS @import가 아닌 Tailwind 지시문으로 처리됨
   - Google Fonts는 항상 HTML <link> 태그로 로딩 — CSS @import url()은 PostCSS 호환성 문제 발생
 ---
+
+## 2026-04-03 - US-016
+- 세션 생성 비동기화 검증 — 이미 구현 완료 상태 확인
+- POST /api/sessions: asyncio.create_task로 백그라운드 세그먼트 분할, 즉시 pending 응답 반환
+- _bootstrap_session: 성공 시 orchestrator.segment_script에서 setup_state='ready' 설정, 실패 시 setup_state='error' + error_message 기록
+- DashboardScreen: handleUpload에서 loadSessions() 호출 (onSessionStart 대신), pending 세션 5초 polling
+- npx tsc --noEmit 통과, npx vite build 성공 (408KB)
+- Files changed: scripts/ralph/prd.json (passes: true 설정만)
+- **Learnings for future iterations:**
+  - 이전 작업에서 이미 구현된 사항은 검증만 수행 — 불필요한 코드 변경 방지
+  - asyncio.create_task는 FastAPI의 이벤트 루프에서 실행되므로 별도 스레드/프로세스 불필요
+  - 백그라운드 작업 완료 감지는 프론트엔드 polling으로 해결 (WebSocket 대신 단순 구현)
+  - setup_state는 Session 모델 + list_sessions + get_session 3곳에서 일관되게 반환
+---

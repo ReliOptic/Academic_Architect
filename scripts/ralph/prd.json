@@ -239,7 +239,7 @@
         "npx tsc --noEmit 통과"
       ],
       "priority": 16,
-      "passes": false,
+      "passes": true,
       "notes": "server/main.py: asyncio.create_task(_bootstrap_session(...)). DashboardScreen: handleUpload에서 onSessionStart 대신 loadSessions 호출. 기존 pending polling(5초 interval)이 ready 전환 감지."
     },
     {
