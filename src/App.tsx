@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import Layout from './components/Layout';
 import ModelSettingsScreen from './components/ModelSettingsScreen';
 import DashboardScreen from './components/DashboardScreen';
@@ -13,12 +13,20 @@ export default function App() {
     return localStorage.getItem('architect_started') === 'true';
   });
 
-  const [activeTab, setActiveTab] = useState(() => {
-    const configured = localStorage.getItem('architect_configured') === 'true';
-    return configured ? 'dashboard' : 'model-settings';
+  const [activeTab, setActiveTabRaw] = useState(() => {
+    return localStorage.getItem('architect_active_tab') || (
+      localStorage.getItem('architect_configured') === 'true' ? 'dashboard' : 'model-settings'
+    );
   });
 
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
+    return localStorage.getItem('architect_active_session') || null;
+  });
+
+  const setActiveTab = useCallback((tab: string) => {
+    localStorage.setItem('architect_active_tab', tab);
+    setActiveTabRaw(tab);
+  }, []);
 
   const handleStart = () => {
     setIsStarted(true);
@@ -32,6 +40,7 @@ export default function App() {
 
   const handleSessionStart = (sessionId: string) => {
     setActiveSessionId(sessionId);
+    localStorage.setItem('architect_active_session', sessionId);
     setActiveTab('learning');
   };
 
