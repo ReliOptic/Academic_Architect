@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import { forwardRef } from 'react';
 import { Sparkles, Loader2, Archive, FileDown, AlertTriangle, WifiOff, ArrowLeft } from 'lucide-react';
 import type { Phase, SegmentInfo } from '../../types';
 import type { ChatMessage } from '../../hooks/useSession';

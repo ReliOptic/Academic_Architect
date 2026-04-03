@@ -4,7 +4,6 @@ import {
   Download,
   CheckCircle2,
   BookOpen,
-  Clock,
   FileDown,
 } from 'lucide-react';
 import { Card } from './ui/Card';
