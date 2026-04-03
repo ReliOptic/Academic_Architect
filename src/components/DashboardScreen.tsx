@@ -69,8 +69,9 @@ export default function DashboardScreen({ onSessionStart }: Props) {
     setUploading(true);
     setError(null);
     try {
-      const result = await api.createSession(file);
-      onSessionStart(result.session_id);
+      await api.createSession(file);
+      // 세션 생성은 백그라운드 처리 — 목록 갱신하여 pending 상태 표시
+      await loadSessions();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

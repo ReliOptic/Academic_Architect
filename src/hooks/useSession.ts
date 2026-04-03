@@ -138,6 +138,7 @@ export interface UseSessionReturn {
   viewingSegmentIndex: number | null;
 
   loadSession: (id: string) => Promise<void>;
+  refreshSessionSilent: () => Promise<void>;
   submitPreview: (prediction: string) => Promise<void>;
   skipPreviewPhase: () => Promise<void>;
   startProbe: () => Promise<void>;
@@ -201,6 +202,18 @@ export function useSession(): UseSessionReturn {
       dispatch({ type: 'LOAD_SESSION', session: s, messages: hydrateMessages(s) });
     } catch (e: unknown) {
       dispatch({ type: 'SET_ERROR', error: e instanceof Error ? e.message : String(e) });
+    }
+  }, []);
+
+  /** Pending polling 전용 — loading 상태를 변경하지 않고 세션만 갱신. */
+  const refreshSessionSilent = useCallback(async () => {
+    const id = sessionIdRef.current;
+    if (!id) return;
+    try {
+      const s = await api.getSession(id);
+      dispatch({ type: 'LOAD_SESSION', session: s, messages: hydrateMessages(s) });
+    } catch {
+      // polling 실패는 무시 — 다음 interval에서 재시도
     }
   }, []);
 
@@ -406,6 +419,7 @@ export function useSession(): UseSessionReturn {
     constellation: state.constellation,
     viewingSegmentIndex: state.viewingSegmentIndex,
     loadSession,
+    refreshSessionSilent,
     submitPreview,
     skipPreviewPhase,
     startProbe,

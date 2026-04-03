@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 
@@ -70,9 +71,27 @@ def _get_orchestrator(session_id: str) -> Orchestrator:
 # ── 세션 CRUD ──
 
 
+async def _bootstrap_session(session_id: str, script_text: str) -> None:
+    """백그라운드에서 세그먼트 분할 실행."""
+    try:
+        session = session_store.load(session_id)
+        orch = Orchestrator(session, backend)
+        await orch.segment_script(script_text)
+        logger.info("Session bootstrap complete: %s (%d segments)", session_id, len(session.segments))
+    except Exception as exc:
+        logger.exception("Session bootstrap failed: %s", session_id)
+        try:
+            session = session_store.load(session_id)
+        except FileNotFoundError:
+            return
+        session.setup_state = "error"
+        session.error_message = str(exc)
+        session_store.save(session)
+
+
 @app.post("/api/sessions")
 async def create_session(file: UploadFile):
-    """스크립트 업로드 → 세그먼트 분할 → 세션 생성."""
+    """스크립트 업로드 → 즉시 응답 → 백그라운드에서 세그먼트 분할."""
     if not file.filename:
         raise HTTPException(400, "파일명이 없습니다")
 
@@ -87,25 +106,15 @@ async def create_session(file: UploadFile):
     )
     session_store.save(session)
 
-    orch = Orchestrator(session, backend)
-    try:
-        segments = await orch.segment_script(script_text)
-    except Exception as exc:
-        logger.exception("Session bootstrap failed: %s", session.id)
-        session.setup_state = "error"
-        session.error_message = str(exc)
-        session_store.save(session)
-        raise HTTPException(500, f"세션 초기화 실패: {exc}")
+    # 백그라운드에서 세그먼트 분할 시작 — HTTP 응답은 즉시 반환
+    asyncio.create_task(_bootstrap_session(session.id, script_text))
 
     return {
         "session_id": session.id,
         "title": session.title,
-        "segment_count": len(segments),
-        "setup_state": session.setup_state,
-        "segments": [
-            {"id": s.id, "title": s.title, "core_concept": s.core_concept}
-            for s in segments
-        ],
+        "segment_count": 0,
+        "setup_state": "pending",
+        "segments": [],
     }
 
 

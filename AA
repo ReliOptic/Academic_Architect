@@ -150,8 +150,14 @@ def onboard(no_browser: bool, frontend_only: bool, backend_only: bool) -> int:
     backend_proc: subprocess.Popen[str] | None = None
     frontend_proc: subprocess.Popen[str] | None = None
 
-    atexit.register(stop_process, backend_proc)
-    atexit.register(stop_process, frontend_proc)
+    # processes 리스트를 참조로 전달하여 atexit에서 실제 프로세스를 정리
+    processes: list[subprocess.Popen[str]] = []
+
+    def _cleanup() -> None:
+        for proc in processes:
+            stop_process(proc)
+
+    atexit.register(_cleanup)
 
     if not frontend_only:
         venv_python = ensure_python_env(python_bin)
@@ -186,7 +192,7 @@ def onboard(no_browser: bool, frontend_only: bool, backend_only: bool) -> int:
         print(f"Frontend: {FRONTEND_URL}")
     print("Press Ctrl+C to stop.")
 
-    processes = [proc for proc in (backend_proc, frontend_proc) if proc]
+    processes.extend(proc for proc in (backend_proc, frontend_proc) if proc)
 
     def handle_signal(signum: int, frame: object) -> None:
         for proc in processes:

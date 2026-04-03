@@ -5,6 +5,7 @@ import DashboardScreen from './components/DashboardScreen';
 import LearningScreen from './components/LearningScreen';
 import ArchiveScreen from './components/ArchiveScreen';
 import LandingPage from './components/LandingPage';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { AnimatePresence, motion } from 'motion/react';
 
 export default function App() {
@@ -40,27 +41,57 @@ export default function App() {
 
   const renderScreen = () => {
     switch (activeTab) {
-      case 'model-settings': return <ModelSettingsScreen onApply={handleSettingsApplied} />;
-      case 'dashboard': return <DashboardScreen onSessionStart={handleSessionStart} />;
-      case 'learning': return <LearningScreen sessionId={activeSessionId} />;
-      case 'archive': return <ArchiveScreen />;
-      default: return <DashboardScreen onSessionStart={handleSessionStart} />;
+      case 'model-settings':
+        return (
+          <ErrorBoundary fallbackTitle="설정 화면 오류">
+            <ModelSettingsScreen onApply={handleSettingsApplied} />
+          </ErrorBoundary>
+        );
+      case 'dashboard':
+        return (
+          <ErrorBoundary fallbackTitle="대시보드 오류">
+            <DashboardScreen onSessionStart={handleSessionStart} />
+          </ErrorBoundary>
+        );
+      case 'learning':
+        return (
+          <ErrorBoundary fallbackTitle="학습 화면 오류">
+            <LearningScreen
+              sessionId={activeSessionId}
+              onNavigateDashboard={() => setActiveTab('dashboard')}
+            />
+          </ErrorBoundary>
+        );
+      case 'archive':
+        return (
+          <ErrorBoundary fallbackTitle="아카이브 오류">
+            <ArchiveScreen />
+          </ErrorBoundary>
+        );
+      default:
+        return (
+          <ErrorBoundary>
+            <DashboardScreen onSessionStart={handleSessionStart} />
+          </ErrorBoundary>
+        );
     }
   };
 
   return (
-    <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={activeTab}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.3, ease: 'easeOut' }}
-        >
-          {renderScreen()}
-        </motion.div>
-      </AnimatePresence>
-    </Layout>
+    <ErrorBoundary fallbackTitle="앱 로딩 오류">
+      <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3, ease: 'easeOut' }}
+          >
+            {renderScreen()}
+          </motion.div>
+        </AnimatePresence>
+      </Layout>
+    </ErrorBoundary>
   );
 }

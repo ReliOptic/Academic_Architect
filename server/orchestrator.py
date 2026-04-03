@@ -47,6 +47,13 @@ class Orchestrator:
         self.session = session
         self.backend = backend
 
+    def _set_phase(self, phase: Phase) -> None:
+        """Session.phase와 현재 SegmentState.phase를 동기화."""
+        self.session.phase = phase
+        state = self.session.current_state
+        if state:
+            state.phase = phase
+
     # ── 세그먼트 분할 ──
 
     async def segment_script(self, script_text: str) -> list[Segment]:
@@ -126,12 +133,12 @@ class Orchestrator:
         state = self.session.current_state
         if state:
             state.preview_prediction = prediction
-            self.session.phase = Phase.PROBING
+            self._set_phase(Phase.PROBING)
             session_store.save(self.session)
 
     def skip_preview(self) -> None:
         """Preview 건너뛰기."""
-        self.session.phase = Phase.PROBING
+        self._set_phase(Phase.PROBING)
         session_store.save(self.session)
 
     # ── Probe (Phase 1) ──
@@ -142,7 +149,7 @@ class Orchestrator:
         if not seg:
             raise ValueError("No current segment")
 
-        self.session.phase = Phase.PROBING
+        self._set_phase(Phase.PROBING)
 
         prompt = probe_prompts.PROBE_USER.format(
             segment_title=seg.title,
@@ -177,7 +184,7 @@ class Orchestrator:
         if not seg or not state:
             raise ValueError("No current segment/state")
 
-        self.session.phase = Phase.ANALYZING
+        self._set_phase(Phase.ANALYZING)
 
         # 메시지 기록
         state.messages.append(
@@ -215,7 +222,7 @@ class Orchestrator:
         if not seg or not state:
             raise ValueError("No current segment/state")
 
-        self.session.phase = Phase.HINTING
+        self._set_phase(Phase.HINTING)
 
         prompt = probe_prompts.HINT_USER.format(
             user_answer=state.level_info.user_answer,
@@ -243,7 +250,7 @@ class Orchestrator:
         if not seg or not state:
             raise ValueError("No current segment/state")
 
-        self.session.phase = Phase.DELIVERING
+        self._set_phase(Phase.DELIVERING)
 
         # confidence 보정: low → 한 단계 위 전략
         effective_level = state.level_info.level
@@ -255,7 +262,7 @@ class Orchestrator:
             core_concept=seg.core_concept,
             key_terms=", ".join(seg.key_terms),
             transcript=seg.transcript,
-            level=effective_level,
+            depth_label=DepthLabel.from_level(effective_level).value,
             probe_question=state.level_info.probe_question,
             user_answer=state.level_info.user_answer,
             reasoning=state.level_info.reasoning,
@@ -270,7 +277,7 @@ class Orchestrator:
         state.messages.append(
             Message(role=MessageRole.ASSISTANT, content=text, phase=Phase.DELIVERING)
         )
-        self.session.phase = Phase.DISCUSSING
+        self._set_phase(Phase.DISCUSSING)
         session_store.save(self.session)
         return text
 
@@ -308,7 +315,11 @@ class Orchestrator:
         )
         cost_tracker.accumulate(self.session, usage)
 
-        result = json.loads(text)
+        try:
+            result = json.loads(text)
+        except json.JSONDecodeError:
+            logger.warning("Discuss JSON parse failed, using raw text: %s", text[:200])
+            result = {"reply": text, "cross_segment_link": False, "end_segment": False}
 
         state.messages.append(
             Message(
@@ -336,6 +347,13 @@ class Orchestrator:
         session_store.save(self.session)
         return result
 
+    async def advance_from_discuss(self) -> None:
+        """Discuss 단계에서 명시적으로 다음 세그먼트로 전환."""
+        if self.session.phase not in (Phase.DISCUSSING, Phase.DELIVERING):
+            raise ValueError(f"Cannot advance from phase {self.session.phase}")
+        await self._complete_segment()
+        session_store.save(self.session)
+
     # ── 세그먼트 완료 + 압축 ──
 
     async def _complete_segment(self) -> None:
@@ -345,7 +363,7 @@ class Orchestrator:
             return
 
         state.completed = True
-        self.session.phase = Phase.COMPRESSING
+        self._set_phase(Phase.COMPRESSING)
 
         # Sliding Summary 압축
         conversation = "\n".join(
@@ -370,7 +388,7 @@ class Orchestrator:
             and completed % settings.CHALLENGE_EVERY_N_SEGMENTS == 0
             and self.session.current_segment_index + 1 < len(self.session.segments)
         ):
-            self.session.phase = Phase.CHALLENGE_PROMPT
+            self._set_phase(Phase.CHALLENGE_PROMPT)
         else:
             self._advance_segment()
 
@@ -379,7 +397,8 @@ class Orchestrator:
         next_idx = self.session.current_segment_index + 1
         if next_idx < len(self.session.segments):
             self.session.current_segment_index = next_idx
-            self.session.phase = Phase.PREVIEW
+            # 새 세그먼트의 state.phase도 동기화
+            self._set_phase(Phase.PREVIEW)
         else:
             self.session.phase = Phase.COMPLETE
             self.session.completed = True
@@ -387,7 +406,11 @@ class Orchestrator:
     # ── Integration Challenge (§G-5) ──
 
     async def generate_challenge(self) -> str:
-        """통합 질문 생성."""
+        """통합 질문 생성. 질문을 세션에 저장하여 재생성 방지."""
+        # 이미 생성된 질문이 있으면 재사용
+        if self.session.pending_challenge_question:
+            return self.session.pending_challenge_question
+
         completed_info = self._completed_segments_info()
 
         prompt = challenge_prompts.CHALLENGE_USER.format(
@@ -398,15 +421,27 @@ class Orchestrator:
             system=challenge_prompts.CHALLENGE_SYSTEM,
         )
         cost_tracker.accumulate(self.session, usage)
+
+        # 질문 저장 + 메시지 기록
+        self.session.pending_challenge_question = text
+        state = self.session.current_state
+        if state:
+            state.messages.append(
+                Message(role=MessageRole.ASSISTANT, content=text, phase=Phase.CHALLENGE_PROMPT)
+            )
+
         session_store.save(self.session)
         return text
 
     async def challenge_feedback(self, question: str, user_answer: str) -> str:
         """통합 질문 답변 피드백."""
+        # 저장된 질문 사용 (프론트엔드 전달 질문은 무시)
+        actual_question = self.session.pending_challenge_question or question
+
         completed_info = self._completed_segments_info()
 
         prompt = challenge_prompts.CHALLENGE_FEEDBACK_USER.format(
-            challenge_question=question,
+            challenge_question=actual_question,
             completed_segments=completed_info,
             user_answer=user_answer,
         )
@@ -416,13 +451,39 @@ class Orchestrator:
         )
         cost_tracker.accumulate(self.session, usage)
 
-        self._advance_segment()
-        self.session.phase = Phase.CHALLENGE_FEEDBACK
+        # 메시지 기록
+        state = self.session.current_state
+        if state:
+            state.messages.append(
+                Message(role=MessageRole.USER, content=user_answer, phase=Phase.CHALLENGE_PROMPT)
+            )
+            state.messages.append(
+                Message(role=MessageRole.ASSISTANT, content=text, phase=Phase.CHALLENGE_FEEDBACK)
+            )
+            # Constellation 통합 연결선 추가 (§G-5)
+            completed_ids = [
+                st.segment_id for st in self.session.segment_states
+                if st.completed and st.segment_id != state.segment_id
+            ]
+            for cid in completed_ids:
+                state.cross_segment_links.append(cid)
+
+        # Phase 전이: CHALLENGE_FEEDBACK 표시 후 → advance
+        self._set_phase(Phase.CHALLENGE_FEEDBACK)
+        self.session.pending_challenge_question = ""
         session_store.save(self.session)
+
+        # advance는 별도 호출로 분리 (프론트엔드에서 피드백 확인 후 진행)
         return text
+
+    def finish_challenge(self) -> None:
+        """챌린지 피드백 확인 후 다음 세그먼트로 진행."""
+        self._advance_segment()
+        session_store.save(self.session)
 
     def skip_challenge(self) -> None:
         """챌린지 건너뛰기."""
+        self.session.pending_challenge_question = ""
         self._advance_segment()
         session_store.save(self.session)
 

@@ -51,6 +51,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
     loading,
     error,
     loadSession,
+    refreshSessionSilent,
     submitPreview,
     skipPreviewPhase,
     startProbe,
@@ -89,14 +90,14 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
     }
   }, [sessionId, loadSession, refreshConstellation]);
 
-  // Pending 세션 자동 polling — setup_state가 'pending'이면 3초마다 재조회
+  // Pending 세션 자동 polling — setup_state가 'pending'이면 3초마다 silent 재조회
   useEffect(() => {
     if (!session || session.setup_state !== 'pending') return;
     const timer = setInterval(() => {
-      if (sessionId) loadSession(sessionId);
+      refreshSessionSilent();
     }, 3000);
     return () => clearInterval(timer);
-  }, [session?.setup_state, sessionId, loadSession]);
+  }, [session?.setup_state, refreshSessionSilent]);
 
   // Reset guards when segment changes
   useEffect(() => {
@@ -113,7 +114,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
         startProbe();
       }
     }
-  }, [phase, session]);
+  }, [phase, session, loading, messages, startProbe]);
 
   // Auto-start challenge
   useEffect(() => {
@@ -124,7 +125,7 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
         startChallenge();
       }
     }
-  }, [phase, session]);
+  }, [phase, session, loading, messages, startChallenge]);
 
   // Auto-scroll
   useEffect(() => {

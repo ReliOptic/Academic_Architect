@@ -1,0 +1,262 @@
+{
+  "project": "Academic Architect",
+  "branchName": "ralph/prd-v2.4-compliance",
+  "description": "PRD v2.4 완전 준수 — 현재 프론트엔드(React+Vite)와 백엔드(FastAPI+Claude CLI)를 PRD 사양에 맞게 수정. 각 스토리는 한 컨텍스트에서 완료 가능한 크기로 분할.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "LearningScreen 반응형 레이아웃 (3패널 → 모바일 단일 패널)",
+      "description": "현재 LearningScreen은 3패널(사이드바 264px + 채팅 + 통계 384px) 고정 레이아웃으로 모바일에서 사용 불가. md 이하에서 채팅 영역만 표시하고, 세그먼트 목록과 통계는 토글/시트로 접근하도록 변경.",
+      "acceptanceCriteria": [
+        "md(768px) 이하에서 좌측 세그먼트 사이드바가 숨겨지고, 햄버거 버튼으로 slide-over 표시",
+        "md 이하에서 우측 통계 사이드바가 숨겨지고, 하단 시트 또는 토글 버튼으로 접근",
+        "채팅 영역이 화면 전체를 차지",
+        "npx tsc --noEmit 통과",
+        "npx vite build 성공"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "src/components/LearningScreen.tsx 수정. Tailwind responsive prefix(md:, lg:) 활용."
+    },
+    {
+      "id": "US-002",
+      "title": "세그먼트 클릭 네비게이션 — 완료 세그먼트 복습",
+      "description": "현재 좌측 세그먼트 목록은 시각적으로만 표시되고 클릭 불가. 완료된 세그먼트를 클릭하면 해당 세그먼트의 대화 이력을 읽기 전용으로 표시해야 함.",
+      "acceptanceCriteria": [
+        "완료된 세그먼트 클릭 시 해당 세그먼트의 messages를 채팅 영역에 표시",
+        "읽기 전용 모드 표시 (입력 비활성화, '복습 중' 배지)",
+        "현재 진행 중 세그먼트로 돌아오는 버튼 표시",
+        "미완료+비현재 세그먼트는 클릭 불가 (시각적 비활성화)",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "useSession hook에 viewSegment(index) 메서드 추가 필요. 현재 세그먼트 인덱스와 조회 인덱스를 분리."
+    },
+    {
+      "id": "US-003",
+      "title": "§G-6 대시보드 평균 깊이 바 표시",
+      "description": "PRD §G-6 명세: '전체 세션의 평균 깊이를 대시보드에 시각적 바로 표시 (숫자 아님)'. 현재 대시보드 세션 카드에 평균 깊이 시각화가 없음.",
+      "acceptanceCriteria": [
+        "세션 목록의 각 세션 행에 평균 깊이를 4단계 컬러 바로 표시",
+        "바는 segment_states의 level 평균을 기반으로 4단계(표면 탐색/구조 파악/핵심 도달/심층 연결) 중 해당 구간 색상",
+        "Bloom 숫자는 노출하지 않음 (PRD §G-6 준수)",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "DashboardScreen.tsx 수정. 세션 목록에서 각 세션의 segment_states가 필요 — listSessions API에 평균 level 필드 추가하거나 프론트엔드에서 계산."
+    },
+    {
+      "id": "US-004",
+      "title": "접근성: ARIA live region + 포커스 관리",
+      "description": "채팅 메시지 도착 시 스크린리더에 알림이 없고, 세그먼트 전환 시 포커스 이동이 없음. WCAG 2.1 AA 기본 요구사항.",
+      "acceptanceCriteria": [
+        "채팅 메시지 영역에 aria-live='polite' 적용",
+        "새 assistant 메시지 도착 시 스크린리더가 내용을 읽음",
+        "세그먼트 전환 시 채팅 헤더로 포커스 자동 이동",
+        "모든 버튼에 aria-label 또는 의미 있는 텍스트 존재",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "LearningScreen.tsx + Layout.tsx 수정."
+    },
+    {
+      "id": "US-005",
+      "title": "Discuss 30초 자동 종료 구현",
+      "description": "PRD §1-2 명세: 'Discuss에서 사용자가 아무 입력 없이 30초면 자동 종료'. 현재 자동 종료 미구현 — 사용자가 명시적으로 '다음'을 입력하거나 버튼을 눌러야만 종료됨.",
+      "acceptanceCriteria": [
+        "Discussing 단계에서 30초간 입력이 없으면 자동으로 다음 세그먼트로 전환",
+        "마지막 10초에 '10초 후 다음 파트로 넘어갑니다' 알림 표시",
+        "사용자가 타이핑 시작하면 타이머 리셋",
+        "자동 종료 시 advanceSegment() 호출",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "LearningScreen.tsx에 useEffect 타이머 추가. input onChange에서 타이머 리셋."
+    },
+    {
+      "id": "US-006",
+      "title": "LearningScreen 컴포넌트 분리 — ChatMessageList 추출",
+      "description": "LearningScreen.tsx가 590줄 단일 파일. 채팅 메시지 렌더링 부분을 ChatMessageList 컴포넌트로 추출하여 유지보수성 향상.",
+      "acceptanceCriteria": [
+        "src/components/learning/ChatMessageList.tsx 생성",
+        "메시지 렌더링, 로딩 인디케이터, 에러 표시, 완료 메시지를 포함",
+        "LearningScreen에서 해당 부분을 <ChatMessageList> 로 교체",
+        "기존 동작 변경 없음",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Props: messages, loading, error, phase, sessionId, onRetry, PHASE_LABELS, DEPTH_LABELS"
+    },
+    {
+      "id": "US-007",
+      "title": "LearningScreen 컴포넌트 분리 — ChatInput 추출",
+      "description": "입력 영역(textarea + 전송 버튼 + '다음 파트' 버튼 + 건너뛰기 버튼)을 ChatInput 컴포넌트로 추출.",
+      "acceptanceCriteria": [
+        "src/components/learning/ChatInput.tsx 생성",
+        "textarea, 전송 버튼, '다음 파트로' 버튼, phase별 placeholder를 포함",
+        "LearningScreen에서 해당 부분을 <ChatInput> 로 교체",
+        "자동 리사이즈, Enter 전송, Shift+Enter 줄바꿈 동작 유지",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Props: phase, loading, onSend, onAdvance, onFinishChallenge, onSkipPreview, onSkipChallenge"
+    },
+    {
+      "id": "US-008",
+      "title": "LearningScreen 컴포넌트 분리 — StatsSidebar 추출",
+      "description": "우측 통계 사이드바(깊이 게이지 + 예측 vs 실제 + Constellation + 아카이브 버튼)를 StatsSidebar 컴포넌트로 추출.",
+      "acceptanceCriteria": [
+        "src/components/learning/StatsSidebar.tsx 생성",
+        "깊이 게이지, 예측 vs 실제, Knowledge Constellation, 아카이브 버튼을 포함",
+        "LearningScreen에서 해당 부분을 <StatsSidebar> 로 교체",
+        "기존 동작 변경 없음",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Props: session, currentState, currentSeg, phase, constellation, DEPTH_LABELS"
+    },
+    {
+      "id": "US-009",
+      "title": "§G-7 KPI 이벤트 로깅 — Preview 참여율 측정",
+      "description": "PRD §0.5 명세: 'Preview 참여율 — Phase 0에서 예측을 입력하는 세그먼트 비율 (vs 건너뛰기). 프론트엔드 이벤트 로깅. 목표 ≥ 25%'. 현재 측정 미구현.",
+      "acceptanceCriteria": [
+        "Preview 입력 시 'preview_submitted' 이벤트를 백엔드에 기록",
+        "Preview 건너뛰기 시 'preview_skipped' 이벤트를 백엔드에 기록",
+        "백엔드 세션 JSON에 events 배열 추가 (timestamp, event_type, segment_id)",
+        "세션 완료 시 preview_participation_rate 자동 계산",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "api.ts에 logEvent 함수 추가. server/main.py에 POST /api/sessions/{id}/events 엔드포인트 추가. server/models.py Session에 events 필드 추가."
+    },
+    {
+      "id": "US-010",
+      "title": "Discuss 자연 전환률 + 진입률 KPI 로깅",
+      "description": "PRD §0.5 명세: 'Discuss 진입률 ≥ 40%' 및 '자연 전환률 ≥ 70%' (사용자 주도 '다음' vs 이탈/타임아웃). 현재 측정 미구현.",
+      "acceptanceCriteria": [
+        "Discuss 단계 진입 시 'discuss_entered' 이벤트 기록",
+        "세그먼트 종료 트리거를 분류하여 기록: 'user_advance' (다음 버튼), 'auto_timeout', 'session_abandon'",
+        "세션 JSON에서 discuss_entry_rate, natural_transition_rate 계산 가능",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "US-009의 events 인프라 활용. advanceSegment 호출 시 트리거 유형 구분."
+    },
+    {
+      "id": "US-011",
+      "title": "세션 완료 시 아카이브 자동 안내 + 아카이브 화면 연결",
+      "description": "현재 세션 완료 시 '탐구 완료!' 메시지만 표시. 아카이브 화면으로의 연결이 없고, ArchiveScreen의 MD 내보내기와 연결되지 않음.",
+      "acceptanceCriteria": [
+        "세션 완료 화면에 '아카이브에서 확인' 버튼 추가 → 아카이브 탭으로 이동",
+        "세션 완료 화면에 'MD 내보내기' 직접 버튼 추가",
+        "우측 사이드바의 비활성 '세션 아카이브' 버튼을 완료 시 활성화",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": "LearningScreen.tsx 수정. App.tsx의 setActiveTab 함수를 LearningScreen에 전달하거나 callback 구조 개선."
+    },
+    {
+      "id": "US-012",
+      "title": "에러 상태 복구 UX 개선",
+      "description": "API 호출 실패 시 채팅 영역에 에러 메시지 + 재시도 버튼만 표시. 어떤 단계에서 실패했는지, 복구 방법이 무엇인지 안내 부족.",
+      "acceptanceCriteria": [
+        "에러 메시지에 실패 phase 표시 (예: 'Probe 질문 생성 중 오류')",
+        "재시도 버튼이 해당 phase의 동작을 재실행 (startProbe, sendAnswer 등)",
+        "네트워크 에러와 백엔드 에러를 구분하여 복구 안내 차별화",
+        "3회 연속 실패 시 대시보드로 복귀 안내",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": "useSession hook의 에러 상태에 phase 정보 포함. LearningScreen에서 phase별 재시도 로직."
+    },
+    {
+      "id": "US-013",
+      "title": "Constellation 의존 관계 엣지 스타일 개선",
+      "description": "Knowledge Constellation에서 depends_on 엣지와 cross_segment_link 엣지의 시각적 구분이 불명확. PRD §G-2, §G-4 준수를 위해 스타일 차별화 필요.",
+      "acceptanceCriteria": [
+        "depends_on 엣지: 실선, 회색, 화살표 방향 표시",
+        "cross_segment_link 엣지: 점선, 주 색상(primary), 애니메이션 펄스",
+        "호버 시 엣지가 연결하는 두 노드 이름을 툴팁으로 표시",
+        "빈 Constellation 상태에서 '아직 탐구한 파트가 없어요' 메시지 표시",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": "src/components/ConstellationView.tsx 수정."
+    },
+    {
+      "id": "US-014",
+      "title": "프론트엔드 통합 빌드 검증 + 미사용 import 정리",
+      "description": "전체 수정 후 빌드 검증. 미사용 import, 미사용 변수 정리. Vite 빌드 경고 0개 달성.",
+      "acceptanceCriteria": [
+        "npx tsc --noEmit 에러 0개",
+        "npx vite build 성공, JS chunk ≤ 500KB",
+        "콘솔에 미사용 import 경고 0개",
+        "모든 lucide-react import가 실제 사용되는 것만 포함",
+        "package.json에 미사용 dependency 없음"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": "모든 US 완료 후 마지막으로 실행. 전체 파일 정리."
+    },
+    {
+      "id": "US-015",
+      "title": "CSS @import 순서 오류 수정 — Tailwind v4 호환",
+      "description": "Tailwind CSS v4의 @import 'tailwindcss'가 확장되면서 Google Fonts @import url(...)이 CSS 규칙 뒤로 밀려 PostCSS 파서 에러 발생. '@import must precede all other statements'. 폰트 로딩을 HTML <link> 태그로 이동해야 함.",
+      "acceptanceCriteria": [
+        "src/index.css에 @import url(...) 구문이 없음",
+        "index.html <head>에 Google Fonts <link> 태그 존재 (preconnect 포함)",
+        "Vite dev server 기동 시 @import 관련 PostCSS 경고 0개",
+        "폰트(Manrope, Inter, Space Grotesk)가 브라우저에서 정상 로딩",
+        "npx vite build 성공"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": "index.html에 <link rel='preconnect'> + <link href='...fonts...' rel='stylesheet'> 추가. src/index.css에서 @import url(...) 행 제거. Tailwind v4의 @import 'tailwindcss'는 유지."
+    },
+    {
+      "id": "US-016",
+      "title": "세션 생성 비동기화 — 업로드 즉시 응답",
+      "description": "POST /api/sessions가 segment_script()를 동기 실행하여 Claude CLI 호출(10-60초) 완료까지 HTTP 응답이 블로킹됨. 긴 스크립트(강의 전체 등)는 브라우저 타임아웃까지 무한대기. asyncio.create_task로 백그라운드 처리하고 즉시 pending 응답을 반환해야 함.",
+      "acceptanceCriteria": [
+        "POST /api/sessions가 1초 이내 응답 (setup_state='pending')",
+        "세그먼트 분할이 백그라운드에서 비동기 실행",
+        "분할 완료 시 세션 JSON의 setup_state가 'ready'로 갱신",
+        "분할 실패 시 세션 JSON의 setup_state가 'error'로 갱신 + error_message 기록",
+        "프론트엔드 DashboardScreen이 pending 세션을 5초 간격 polling으로 감지",
+        "업로드 후 대시보드에 '준비 중' 세션이 즉시 표시",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": "server/main.py: asyncio.create_task(_bootstrap_session(...)). DashboardScreen: handleUpload에서 onSessionStart 대신 loadSessions 호출. 기존 pending polling(5초 interval)이 ready 전환 감지."
+    },
+    {
+      "id": "US-017",
+      "title": "E2E 학습 루프 동작 검증 — CLI 백엔드 정합성",
+      "description": "cli_backend.py의 --verbose 플래그가 Claude CLI 응답 구조를 변경하여 모든 LLM 호출이 실패하던 근본 오류 수정 검증. 또한 CLI 응답의 마크다운 코드블록 래핑과 usage 필드 구조(snake_case vs camelCase) 처리가 정상인지 확인.",
+      "acceptanceCriteria": [
+        "cli_backend.py의 _build_cmd에 --verbose 플래그가 없음",
+        "CLI 응답의 마크다운 코드블록(```json ... ```)을 정규식으로 제거",
+        "_parse_usage가 snake_case(input_tokens)와 camelCase(inputTokens) 모두 처리",
+        "_parse_usage가 modelUsage 중첩 구조에서도 토큰 수 추출",
+        "curl로 세션 생성 → probe → answer → discuss 전체 흐름 성공",
+        "npx tsc --noEmit 통과"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": "이전 대화에서 --verbose 제거, _CODE_BLOCK_RE 추가, _parse_usage 수정 완료. Ralph가 검증만 수행."
+    }
+  ]
+}
