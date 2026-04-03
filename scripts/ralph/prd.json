@@ -255,7 +255,7 @@
         "npx tsc --noEmit 통과"
       ],
       "priority": 17,
-      "passes": false,
+      "passes": true,
       "notes": "이전 대화에서 --verbose 제거, _CODE_BLOCK_RE 추가, _parse_usage 수정 완료. Ralph가 검증만 수행."
     }
   ]

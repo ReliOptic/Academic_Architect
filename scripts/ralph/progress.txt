@@ -257,3 +257,18 @@ Started: 2026-04-03
   - 백그라운드 작업 완료 감지는 프론트엔드 polling으로 해결 (WebSocket 대신 단순 구현)
   - setup_state는 Session 모델 + list_sessions + get_session 3곳에서 일관되게 반환
 ---
+
+## 2026-04-03 - US-017
+- E2E 학습 루프 동작 검증 — CLI 백엔드 정합성 확인 완료
+- _build_cmd에 --verbose 플래그 없음 확인
+- _CODE_BLOCK_RE 정규식으로 마크다운 코드블록(```json ... ```) 제거 확인
+- _parse_usage: snake_case(input_tokens) + camelCase(inputTokens) 모두 처리 확인
+- _parse_usage: modelUsage 중첩 구조에서도 토큰 수 추출 확인
+- npx tsc --noEmit 통과, npx vite build 성공 (408KB)
+- Files changed: scripts/ralph/prd.json (passes: true 설정만)
+- **Learnings for future iterations:**
+  - CLI 백엔드 구조: claude -p → --output-format json → stdout JSON 파싱 → result 필드 추출
+  - --verbose는 응답 구조를 변경하므로 절대 사용 금지 (이전 근본 오류 원인)
+  - Claude CLI 응답의 usage 위치가 버전마다 다를 수 있음 — 다중 fallback 패턴 필수
+  - E2E 검증은 실제 서버 기동 필요 — 코드 검증만으로는 런타임 오류 감지 불가 (수동 확인 필요)
+---
