@@ -22,6 +22,7 @@ import type { Phase } from '../types';
 interface Props {
   sessionId: string | null;
   onNavigateDashboard?: () => void;
+  onNavigateArchive?: () => void;
 }
 
 const DEPTH_LABELS: Record<string, { label: string; color: string }> = {
@@ -43,7 +44,7 @@ const PHASE_LABELS: Partial<Record<Phase, string>> = {
   complete: '완료',
 };
 
-export default function LearningScreen({ sessionId, onNavigateDashboard }: Props) {
+export default function LearningScreen({ sessionId, onNavigateDashboard, onNavigateArchive }: Props) {
   const {
     session,
     messages,
@@ -218,6 +219,43 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
     }
   };
 
+  const exportMarkdown = useCallback(() => {
+    if (!session) return;
+    const lines: string[] = [];
+    lines.push(`# ${session.title}`);
+    lines.push('');
+    lines.push(`- 날짜: ${new Date(session.created_at * 1000).toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' })}`);
+    lines.push(`- 파트 수: ${session.segments?.length || 0}`);
+    lines.push(`- 토큰: ${((session.total_input_tokens || 0) + (session.total_output_tokens || 0)).toLocaleString()}`);
+    lines.push(`- 비용: $${session.cost_usd?.toFixed(4) || '0'}`);
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    session.segments?.forEach((seg, i) => {
+      const st = session.segment_states?.[i];
+      lines.push(`## ${i + 1}. ${seg.title}`);
+      lines.push('');
+      lines.push(`- 핵심 개념: ${seg.core_concept}`);
+      if (st) {
+        lines.push(`- 탐구 깊이: ${st.depth_label}`);
+        if (st.preview_prediction) lines.push(`- 내 예측: ${st.preview_prediction}`);
+      }
+      lines.push('');
+      if (st?.summary) {
+        lines.push('### 요약');
+        lines.push('');
+        lines.push(st.summary);
+        lines.push('');
+      }
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${session.title || 'archive'}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [session]);
 
   const activeSeg = session?.segments?.[session.current_segment_index];
   const activeState = session?.segment_states?.[session.current_segment_index];
@@ -499,6 +537,8 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
           isReviewing={isReviewing}
           totalSegments={session?.segments?.length || 0}
           onRetry={() => loadSession(sessionId!)}
+          onNavigateArchive={onNavigateArchive}
+          onExportMarkdown={exportMarkdown}
           phaseLabels={PHASE_LABELS}
         />
 
@@ -526,6 +566,8 @@ export default function LearningScreen({ sessionId, onNavigateDashboard }: Props
         currentState={currentState}
         currentSeg={currentSeg}
         constellation={constellation}
+        phase={phase}
+        onNavigateArchive={onNavigateArchive}
       />
     </div>
   );

@@ -59,6 +59,7 @@ export default function App() {
             <LearningScreen
               sessionId={activeSessionId}
               onNavigateDashboard={() => setActiveTab('dashboard')}
+              onNavigateArchive={() => setActiveTab('archive')}
             />
           </ErrorBoundary>
         );

@@ -10,7 +10,7 @@ import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { SectionHeader } from '../ui/SectionHeader';
 import ConstellationView from '../ConstellationView';
-import type { Session, SegmentInfo, SegmentState, ConstellationData } from '../../types';
+import type { Session, SegmentInfo, SegmentState, ConstellationData, Phase } from '../../types';
 
 const DEPTH_LABELS: Record<string, { label: string; color: string }> = {
   '표면 탐색': { label: '표면 탐색', color: 'text-on-surface-variant' },
@@ -26,6 +26,8 @@ interface StatsSidebarProps {
   currentState: SegmentState | null | undefined;
   currentSeg: SegmentInfo | null | undefined;
   constellation: ConstellationData | null;
+  phase?: Phase;
+  onNavigateArchive?: () => void;
 }
 
 export default function StatsSidebar({
@@ -35,6 +37,8 @@ export default function StatsSidebar({
   currentState,
   currentSeg,
   constellation,
+  phase,
+  onNavigateArchive,
 }: StatsSidebarProps) {
   return (
     <aside className={`
@@ -140,13 +144,23 @@ export default function StatsSidebar({
         </div>
       </div>
 
-      <button
-        aria-label="세션 아카이브"
-        aria-disabled="true"
-        className="w-full py-4 bg-surface-container-high rounded-xl label-md text-[10px] text-on-surface-variant flex items-center justify-center gap-2 opacity-40 cursor-not-allowed"
-      >
-        <Save size={14} /> 세션 아카이브
-      </button>
+      {phase === 'complete' && onNavigateArchive ? (
+        <button
+          onClick={onNavigateArchive}
+          aria-label="세션 아카이브"
+          className="w-full py-4 bg-primary text-white rounded-xl label-md text-[10px] font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+        >
+          <Save size={14} /> 세션 아카이브
+        </button>
+      ) : (
+        <button
+          aria-label="세션 아카이브"
+          aria-disabled="true"
+          className="w-full py-4 bg-surface-container-high rounded-xl label-md text-[10px] text-on-surface-variant flex items-center justify-center gap-2 opacity-40 cursor-not-allowed"
+        >
+          <Save size={14} /> 세션 아카이브
+        </button>
+      )}
     </aside>
   );
 }

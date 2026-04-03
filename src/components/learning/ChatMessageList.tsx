@@ -1,5 +1,5 @@
 import React, { forwardRef } from 'react';
-import { Sparkles, Loader2 } from 'lucide-react';
+import { Sparkles, Loader2, Archive, FileDown } from 'lucide-react';
 import type { Phase, SegmentInfo } from '../../types';
 import type { ChatMessage } from '../../hooks/useSession';
 
@@ -13,12 +13,14 @@ interface ChatMessageListProps {
   isReviewing: boolean;
   totalSegments: number;
   onRetry: () => void;
+  onNavigateArchive?: () => void;
+  onExportMarkdown?: () => void;
   phaseLabels: Partial<Record<Phase, string>>;
 }
 
 const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
   function ChatMessageList(
-    { messages, loading, error, phase, currentSeg, isReviewing, totalSegments, onRetry, phaseLabels },
+    { messages, loading, error, phase, currentSeg, isReviewing, totalSegments, onRetry, onNavigateArchive, onExportMarkdown, phaseLabels },
     ref,
   ) {
     return (
@@ -79,11 +81,29 @@ const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
         {/* Session complete */}
         {phase === 'complete' && (
           <div className="flex justify-center">
-            <div className="text-center space-y-3 p-6 bg-surface-container-lowest rounded-2xl border border-primary/20">
+            <div className="text-center space-y-4 p-6 bg-surface-container-lowest rounded-2xl border border-primary/20">
               <h3 className="font-bold text-lg text-primary">탐구 완료!</h3>
               <p className="text-sm text-on-surface-variant">
                 총 {totalSegments}개 파트를 탐구했습니다.
               </p>
+              <div className="flex items-center justify-center gap-3 pt-2">
+                {onNavigateArchive && (
+                  <button
+                    onClick={onNavigateArchive}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-xs font-bold hover:opacity-90 transition-opacity"
+                  >
+                    <Archive size={14} /> 아카이브에서 확인
+                  </button>
+                )}
+                {onExportMarkdown && (
+                  <button
+                    onClick={onExportMarkdown}
+                    className="flex items-center gap-2 px-4 py-2.5 ghost-border rounded-xl text-xs font-bold text-on-surface-variant hover:text-primary transition-colors"
+                  >
+                    <FileDown size={14} /> MD 내보내기
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
