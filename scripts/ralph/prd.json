@@ -162,7 +162,7 @@
         "npx tsc --noEmit 통과"
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "LearningScreen.tsx 수정. App.tsx의 setActiveTab 함수를 LearningScreen에 전달하거나 callback 구조 개선."
     },
     {
@@ -177,7 +177,7 @@
         "npx tsc --noEmit 통과"
       ],
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "notes": "useSession hook의 에러 상태에 phase 정보 포함. LearningScreen에서 phase별 재시도 로직."
     },
     {
@@ -192,7 +192,7 @@
         "npx tsc --noEmit 통과"
       ],
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "notes": "src/components/ConstellationView.tsx 수정."
     },
     {
@@ -207,7 +207,7 @@
         "package.json에 미사용 dependency 없음"
       ],
       "priority": 14,
-      "passes": false,
+      "passes": true,
       "notes": "모든 US 완료 후 마지막으로 실행. 전체 파일 정리."
     },
     {
@@ -222,7 +222,7 @@
         "npx vite build 성공"
       ],
       "priority": 15,
-      "passes": false,
+      "passes": true,
       "notes": "index.html에 <link rel='preconnect'> + <link href='...fonts...' rel='stylesheet'> 추가. src/index.css에서 @import url(...) 행 제거. Tailwind v4의 @import 'tailwindcss'는 유지."
     },
     {
