@@ -27,15 +27,17 @@ description: Launch a Socratic learning session for a study file. Boots the Acad
      > `git clone https://github.com/relioptic/academic_architect && cd academic_architect && ./AA --print-install-snippet`
 3. **백엔드/프론트엔드 부팅 + 업로드** — Bash 도구로 다음을 *백그라운드*에서 실행:
    ```bash
-   <AA-path> --upload <resolved-file> --no-browser
+   <AA-path> --onboard --upload <resolved-file> --no-browser
    ```
    - `--no-browser` 를 붙여 브라우저는 직접 제어 (skill이 URL을 사용자에게 보여주는 게 더 확실).
    - 백그라운드로 띄워야 학습 세션이 끝날 때까지 사용자의 Claude Code 세션이 막히지 않음.
+   - 백엔드/프론트엔드가 이미 떠 있으면 AA가 자동으로 감지해 재사용한다 — 별도 처리 불필요.
 4. **세션 ID 캡처** — 출력에서 다음 형태의 줄을 찾는다:
    ```
    [AA] Session created: <id>
    ```
-   초기 부팅에는 30초 정도 걸릴 수 있으므로, 출력을 *최대 60초까지* 폴링.
+   AA는 *백엔드가 뜨자마자* 업로드를 수행하므로(프론트엔드 부팅을 기다리지 않음),
+   대부분의 경우 5~10초 안에 이 줄이 등장한다. 보수적으로 90초까지 폴링.
 5. **HUD URL 안내** — 사용자에게 다음을 보고:
    - 학습 HUD: `http://localhost:3000/?session=<id>`
    - 짧은 안내 한 줄: "브라우저에서 학습을 이어가세요. 세션이 끝나면 아카이브 화면에서 마크다운 보고서를 받을 수 있습니다."

@@ -154,6 +154,38 @@ export default function LearningScreen({ sessionId }: Props) {
     );
   }
 
+  // Deep-link to a session that no longer exists / failed to load.
+  if (sessionId && !loading && !session && error) {
+    const cleanUrlAndGoDashboard = () => {
+      if (typeof window !== 'undefined' && window.location.search) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+      window.location.reload();
+    };
+    return (
+      <div className="flex h-[calc(100vh-64px)] items-center justify-center">
+        <div className="max-w-md text-center space-y-5 p-8 bg-surface-container-lowest rounded-2xl border border-error/30">
+          <AlertTriangle size={36} className="mx-auto text-error/70" />
+          <div className="space-y-2">
+            <h3 className="headline-sm">이 세션을 찾을 수 없습니다</h3>
+            <p className="text-xs text-on-surface-variant whitespace-pre-wrap">
+              {error}
+            </p>
+            <p className="text-xs text-on-surface-variant opacity-60">
+              세션 ID <code className="font-mono">{sessionId}</code> 가 삭제되었거나, 백엔드가 다른 데이터 디렉토리를 보고 있을 수 있어요.
+            </p>
+          </div>
+          <button
+            onClick={cleanUrlAndGoDashboard}
+            className="px-5 py-2 bg-primary text-white rounded-full text-xs font-bold uppercase tracking-widest hover:opacity-90 transition-opacity"
+          >
+            Dashboard로 돌아가기
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (session && session.setup_state !== 'ready') {
     const isError = session.setup_state === 'error';
     return (

@@ -210,29 +210,33 @@ def onboard(
     atexit.register(stop_process, backend_proc)
     atexit.register(stop_process, frontend_proc)
 
+    backend_already_running = port_open("127.0.0.1", 8000)
+    frontend_already_running = port_open("127.0.0.1", 3000)
+
     if not frontend_only:
-        venv_python = ensure_python_env(python_bin)
-        ensure_python_dependencies(venv_python)
-        backend_proc = spawn(
-            [
-                str(venv_python),
-                "-m",
-                "uvicorn",
-                "server.main:app",
-                "--reload",
-                "--host",
-                "0.0.0.0",
-                "--port",
-                "8000",
-            ]
-        )
-        wait_for_port("127.0.0.1", 8000, timeout=30)
+        if backend_already_running:
+            print("[AA] Backend already running on :8000 — reusing it.")
+        else:
+            venv_python = ensure_python_env(python_bin)
+            ensure_python_dependencies(venv_python)
+            backend_proc = spawn(
+                [
+                    str(venv_python),
+                    "-m",
+                    "uvicorn",
+                    "server.main:app",
+                    "--reload",
+                    "--host",
+                    "0.0.0.0",
+                    "--port",
+                    "8000",
+                ]
+            )
+            wait_for_port("127.0.0.1", 8000, timeout=30)
 
-    if not backend_only:
-        ensure_node_dependencies(npm_bin)
-        frontend_proc = spawn([npm_bin, "run", "dev"])
-        wait_for_port("127.0.0.1", 3000, timeout=30)
-
+    # Upload immediately after backend is up — frontend isn't required for upload.
+    # Lets `Session created:` line appear within seconds of backend readiness,
+    # which the /socratic skill can then capture without long polling.
     target_url = FRONTEND_URL
     if upload_path is not None:
         print(f"[AA] Uploading {upload_path.name}...")
@@ -245,6 +249,14 @@ def onboard(
         print(f"[AA] Session created: {session_id}")
         target_url = f"{FRONTEND_URL}/?session={session_id}"
 
+    if not backend_only:
+        if frontend_already_running:
+            print("[AA] Frontend already running on :3000 — reusing it.")
+        else:
+            ensure_node_dependencies(npm_bin)
+            frontend_proc = spawn([npm_bin, "run", "dev"])
+            wait_for_port("127.0.0.1", 3000, timeout=30)
+
     if not no_browser and not backend_only:
         webbrowser.open(target_url)
 
@@ -253,9 +265,15 @@ def onboard(
         print(f"Backend:  {BACKEND_URL}")
     if not backend_only:
         print(f"Frontend: {target_url}")
-    print("Press Ctrl+C to stop.")
 
     processes = [proc for proc in (backend_proc, frontend_proc) if proc]
+    # If we didn't spawn anything new (both already running), exit cleanly —
+    # the existing AA instance owns the lifecycle.
+    if not processes:
+        print("[AA] All services already running. Exiting (existing AA instance owns lifecycle).")
+        return 0
+
+    print("Press Ctrl+C to stop.")
 
     def handle_signal(signum: int, frame: object) -> None:
         for proc in processes:
