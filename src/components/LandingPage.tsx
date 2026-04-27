@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { ArrowRight, Globe, Shield, Zap } from 'lucide-react';
+import { ArrowRight, HelpCircle, Target, Sparkles } from 'lucide-react';
 
 interface LandingPageProps {
   onStart: () => void;
@@ -42,22 +42,24 @@ export default function LandingPage({ onStart }: LandingPageProps) {
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-surface-container-highest border border-outline-variant/20 shadow-sm mb-6">
             <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
             <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant">
-              Architectural Intelligence v1.0
+              The Socratic Method, Scaled by AI
             </span>
           </div>
-          
+
           <h1 className="text-6xl md:text-8xl font-extrabold tracking-tighter text-on-surface leading-[0.9] font-manrope">
             The Academic <br />
             <span className="text-primary italic">Architect</span>
           </h1>
-          
+
           <p className="text-lg md:text-xl text-on-surface-variant max-w-2xl mx-auto leading-relaxed opacity-80 font-medium">
-            A high-fidelity synthesis environment for deconstructing complex information through Socratic dialogue and architectural modeling.
+            We don't hand you the answer. We ask, until you arrive at it yourself.
+            <br />
+            <span className="opacity-70 text-base md:text-lg">A Socratic learning agent for long-form study material.</span>
           </p>
         </motion.div>
 
         {/* Features */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2 }}
@@ -65,31 +67,31 @@ export default function LandingPage({ onStart }: LandingPageProps) {
         >
           <div className="space-y-3 p-6 rounded-2xl bg-surface-container-low border border-outline-variant/10">
             <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
-              <Globe size={20} />
+              <HelpCircle size={20} />
             </div>
-            <h3 className="font-bold text-sm uppercase tracking-wider">Local Synthesis</h3>
+            <h3 className="font-bold text-sm uppercase tracking-wider">Question First</h3>
             <p className="text-xs text-on-surface-variant leading-relaxed opacity-70">
-              Bridge your local terminal environment with advanced inference engines for secure, private data processing.
-            </p>
-          </div>
-          
-          <div className="space-y-3 p-6 rounded-2xl bg-surface-container-low border border-outline-variant/10">
-            <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
-              <Shield size={20} />
-            </div>
-            <h3 className="font-bold text-sm uppercase tracking-wider">Secure Adapters</h3>
-            <p className="text-xs text-on-surface-variant leading-relaxed opacity-70">
-              Enterprise-grade adapter types ensuring your architectural artifacts remain within your controlled perimeter.
+              Each segment opens with a question that reveals where you actually stand. No upfront lectures, no generic explanations.
             </p>
           </div>
 
           <div className="space-y-3 p-6 rounded-2xl bg-surface-container-low border border-outline-variant/10">
             <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
-              <Zap size={20} />
+              <Target size={20} />
             </div>
-            <h3 className="font-bold text-sm uppercase tracking-wider">Rapid Extraction</h3>
+            <h3 className="font-bold text-sm uppercase tracking-wider">Level Adaptive</h3>
             <p className="text-xs text-on-surface-variant leading-relaxed opacity-70">
-              Convert raw study artifacts into structured knowledge graphs using high-performance synthesis models.
+              Your answer is read as a depth signal (L0–L4). The next question is calibrated to where you are — not to where the syllabus assumes you are.
+            </p>
+          </div>
+
+          <div className="space-y-3 p-6 rounded-2xl bg-surface-container-low border border-outline-variant/10">
+            <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
+              <Sparkles size={20} />
+            </div>
+            <h3 className="font-bold text-sm uppercase tracking-wider">Constellation Memory</h3>
+            <p className="text-xs text-on-surface-variant leading-relaxed opacity-70">
+              Every segment leaves a trace of how deep you went and what you connected. Your understanding becomes a map you can export.
             </p>
           </div>
         </motion.div>
@@ -101,17 +103,17 @@ export default function LandingPage({ onStart }: LandingPageProps) {
           transition={{ duration: 0.8, delay: 0.4 }}
           className="pt-8"
         >
-          <button 
+          <button
             onClick={onStart}
             className="group relative inline-flex items-center gap-3 px-12 py-5 bg-on-surface text-surface rounded-2xl font-bold text-lg hover:bg-primary hover:text-white transition-all shadow-2xl overflow-hidden"
           >
-            <span className="relative z-10">INITIATE SESSION</span>
+            <span className="relative z-10">BEGIN INQUIRY</span>
             <ArrowRight className="relative z-10 group-hover:translate-x-1 transition-transform" size={20} />
             <div className="absolute inset-0 bg-primary translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
           </button>
-          
+
           <p className="mt-6 text-[10px] font-bold text-on-surface-variant uppercase tracking-[0.3em] opacity-40">
-            Press to enter the architectural perimeter
+            Don't get answers. Arrive at them.
           </p>
         </motion.div>
       </div>
