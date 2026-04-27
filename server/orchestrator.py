@@ -36,6 +36,7 @@ from server.prompts import discuss as discuss_prompts
 from server.prompts import compress as compress_prompts
 from server.prompts import challenge as challenge_prompts
 from server import cost_tracker, session_store
+from server.socratic import is_socratic_closing
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +230,12 @@ class Orchestrator:
         cost_tracker.accumulate(self.session, usage)
 
         state.messages.append(
-            Message(role=MessageRole.ASSISTANT, content=text, phase=Phase.HINTING)
+            Message(
+                role=MessageRole.ASSISTANT,
+                content=text,
+                phase=Phase.HINTING,
+                metadata={"is_socratic": is_socratic_closing(text)},
+            )
         )
         session_store.save(self.session)
         return text
@@ -268,7 +274,12 @@ class Orchestrator:
         cost_tracker.accumulate(self.session, usage)
 
         state.messages.append(
-            Message(role=MessageRole.ASSISTANT, content=text, phase=Phase.DELIVERING)
+            Message(
+                role=MessageRole.ASSISTANT,
+                content=text,
+                phase=Phase.DELIVERING,
+                metadata={"is_socratic": is_socratic_closing(text)},
+            )
         )
         self.session.phase = Phase.DISCUSSING
         session_store.save(self.session)
@@ -310,12 +321,20 @@ class Orchestrator:
 
         result = json.loads(text)
 
+        reply_text = result.get("reply", "")
+        end_segment = result.get("end_segment", False)
         state.messages.append(
             Message(
                 role=MessageRole.ASSISTANT,
-                content=result.get("reply", ""),
+                content=reply_text,
                 phase=Phase.DISCUSSING,
-                metadata={"cross_segment_link": result.get("cross_segment_link", False)},
+                metadata={
+                    "cross_segment_link": result.get("cross_segment_link", False),
+                    # 세그먼트 종료 응답은 닫음 검사 면제 (마무리 한 줄이 정상)
+                    "is_socratic": (
+                        True if end_segment else is_socratic_closing(reply_text)
+                    ),
+                },
             )
         )
 

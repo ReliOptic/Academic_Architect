@@ -135,8 +135,8 @@ export default function LearningScreen({ sessionId }: Props) {
   const placeholderMap: Partial<Record<Phase, string>> = {
     preview: '이 파트에서 뭘 다룰 것 같아?',
     probing: '답변을 입력하세요...',
-    hinting: '다시 생각해서 답변해봐...',
-    discussing: '궁금한 거 있어? 없으면 "다음"',
+    hinting: '작은 질문에 답해봐...',
+    discussing: '후속 질문에 답하거나, 더 파고 싶은 거 있어? 아니면 "다음"',
     challenge_prompt: '통합 질문에 답변해봐...',
   };
 

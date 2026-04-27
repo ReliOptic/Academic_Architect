@@ -31,6 +31,25 @@ def _delivery_text(state: SegmentState) -> str:
     return ""
 
 
+_TRACKED_PHASES = {Phase.DELIVERING, Phase.HINTING, Phase.DISCUSSING}
+
+
+def _socratic_counts(session: Session) -> tuple[int, int]:
+    """추적 대상 AI 응답 중 소크라테스식으로 닫힌 비율 계산."""
+    total = 0
+    hit = 0
+    for st in session.segment_states:
+        for msg in st.messages:
+            if msg.role != MessageRole.ASSISTANT or msg.phase not in _TRACKED_PHASES:
+                continue
+            if "is_socratic" not in msg.metadata:
+                continue
+            total += 1
+            if msg.metadata["is_socratic"]:
+                hit += 1
+    return total, hit
+
+
 def build_markdown(session: Session) -> str:
     """세션을 마크다운 문서 문자열로 변환."""
     lines: list[str] = []
@@ -50,6 +69,14 @@ def build_markdown(session: Session) -> str:
     if levels:
         avg = sum(levels) / len(levels)
         lines.append(f"- 평균 도달 레벨: L{avg:.1f}")
+
+    socratic_total, socratic_hit = _socratic_counts(session)
+    if socratic_total > 0:
+        ratio = socratic_hit / socratic_total
+        lines.append(
+            f"- 소크라테스 닫음 비율: {socratic_hit}/{socratic_total} "
+            f"({ratio:.0%}) — Deliver/Hint/Discuss 응답 중 질문·사고실험으로 닫은 비율"
+        )
     lines.append("")
 
     # 세그먼트별 상세
