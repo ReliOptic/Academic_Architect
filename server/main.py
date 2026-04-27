@@ -23,6 +23,7 @@ import shutil
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from server.config import settings
 from server.models import (
@@ -35,7 +36,7 @@ from server.models import (
 from server.llm.cli_backend import CLIBackend
 from server.orchestrator import Orchestrator
 from server.script_loader import read_script, save_upload
-from server import session_store
+from server import markdown_export, session_store
 
 logging.basicConfig(
     level=logging.INFO,
@@ -310,6 +311,36 @@ async def get_constellation(session_id: str):
     orch = _get_orchestrator(session_id)
     data = orch.get_constellation()
     return data.model_dump()
+
+
+# ── Archive export ──
+
+
+@app.get("/api/sessions/{session_id}/export/markdown")
+async def export_session_markdown(session_id: str):
+    """완료된 세션을 마크다운 파일로 다운로드."""
+    try:
+        session = session_store.load(session_id)
+    except FileNotFoundError:
+        raise HTTPException(404, f"Session not found: {session_id}")
+
+    body = markdown_export.build_markdown(session)
+    filename = f"{markdown_export.safe_filename(session)}.md"
+
+    # 파일을 아카이브 디렉토리에도 보관 (재다운로드 / 외부 도구 연동용)
+    try:
+        archive_path = settings.ARCHIVE_DIR / f"{session.id}.md"
+        archive_path.write_text(body, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Archive write failed for %s: %s", session.id, exc)
+
+    return Response(
+        content=body,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 
 # ── Health ──

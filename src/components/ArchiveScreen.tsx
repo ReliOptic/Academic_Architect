@@ -17,6 +17,8 @@ export default function ArchiveScreen() {
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sessionDetail, setSessionDetail] = useState<any>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     api.listSessions().then((all) => {
@@ -35,6 +37,27 @@ export default function ArchiveScreen() {
     new Date(ts * 1000).toLocaleDateString('ko-KR', {
       year: 'numeric', month: 'short', day: 'numeric',
     });
+
+  const handleExport = async () => {
+    if (!selectedId || exporting) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const { filename, blob } = await api.exportSessionMarkdown(selectedId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : '내보내기 실패');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-12 py-20">
@@ -92,13 +115,29 @@ export default function ArchiveScreen() {
         <div className="lg:col-span-8 space-y-10">
           {sessionDetail ? (
             <div className="bg-surface-container-low p-12 rounded-2xl border border-outline-variant/10 space-y-8">
-              <div className="space-y-2">
-                <h2 className="headline-md">{sessionDetail.title}</h2>
-                <div className="flex gap-4 text-xs text-on-surface-variant">
-                  <span>{formatDate(sessionDetail.created_at)}</span>
-                  <span>{sessionDetail.segments?.length}개 파트</span>
-                  <span>토큰: {(sessionDetail.total_input_tokens + sessionDetail.total_output_tokens).toLocaleString()}</span>
-                  <span>${sessionDetail.cost_usd?.toFixed(4)}</span>
+              <div className="flex items-start justify-between gap-6">
+                <div className="space-y-2">
+                  <h2 className="headline-md">{sessionDetail.title}</h2>
+                  <div className="flex gap-4 text-xs text-on-surface-variant">
+                    <span>{formatDate(sessionDetail.created_at)}</span>
+                    <span>{sessionDetail.segments?.length}개 파트</span>
+                    <span>토큰: {(sessionDetail.total_input_tokens + sessionDetail.total_output_tokens).toLocaleString()}</span>
+                    <span>${sessionDetail.cost_usd?.toFixed(4)}</span>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={handleExport}
+                    disabled={exporting}
+                    className="flex items-center gap-2 px-4 py-2 rounded-full border border-primary/30 bg-surface-container-lowest text-xs font-bold uppercase tracking-widest text-primary hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Download size={14} />
+                    {exporting ? '내보내는 중...' : '마크다운 내보내기'}
+                  </button>
+                  {exportError && (
+                    <span className="text-[10px] text-red-500/80">{exportError}</span>
+                  )}
                 </div>
               </div>
 

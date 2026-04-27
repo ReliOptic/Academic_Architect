@@ -118,6 +118,24 @@ export function getConstellation(sessionId: string) {
   return request<ConstellationData>(`/sessions/${sessionId}/constellation`);
 }
 
+// ── Archive export ──
+
+export async function exportSessionMarkdown(sessionId: string): Promise<{
+  filename: string;
+  blob: Blob;
+}> {
+  const res = await fetch(`${BASE}/sessions/${sessionId}/export/markdown`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Export failed ${res.status}: ${body}`);
+  }
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const filename = match ? match[1] : `session-${sessionId}.md`;
+  const blob = await res.blob();
+  return { filename, blob };
+}
+
 // ── Health ──
 
 export function healthCheck() {
