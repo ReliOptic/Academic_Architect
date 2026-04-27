@@ -7,17 +7,28 @@ import ArchiveScreen from './components/ArchiveScreen';
 import LandingPage from './components/LandingPage';
 import { AnimatePresence, motion } from 'motion/react';
 
+function readDeepLinkSession(): string | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get('session');
+  return id && /^[a-zA-Z0-9_-]{4,64}$/.test(id) ? id : null;
+}
+
 export default function App() {
+  const deepLinkSession = readDeepLinkSession();
+
   const [isStarted, setIsStarted] = useState(() => {
+    if (deepLinkSession) return true;
     return localStorage.getItem('architect_started') === 'true';
   });
 
   const [activeTab, setActiveTab] = useState(() => {
+    if (deepLinkSession) return 'learning';
     const configured = localStorage.getItem('architect_configured') === 'true';
     return configured ? 'dashboard' : 'model-settings';
   });
 
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(deepLinkSession);
 
   const handleStart = () => {
     setIsStarted(true);

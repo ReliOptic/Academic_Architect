@@ -147,6 +147,32 @@ Academic_Architect/
 ./AA --onboard --frontend-only
 ```
 
+### 파일 한 줄 업로드 → 학습 HUD로 바로 점프
+
+```bash
+./AA --upload ./linear-algebra.txt
+```
+
+- 백엔드/프론트엔드를 자동 부팅
+- 파일을 세션으로 업로드
+- 브라우저를 `http://localhost:3000/?session=<id>` 로 바로 열어 **학습 HUD에서 첫 세그먼트부터 시작**
+
+### Claude Code 스킬 (`/socratic`)
+
+Claude Code 사용자는 터미널에서 다음 한 줄로 학습을 시작할 수 있습니다:
+
+```
+/socratic ./linear-algebra.txt
+```
+
+`.claude/skills/socratic-tutor/SKILL.md` 가 위 `--upload` 흐름을 호출해 백엔드 부팅 + 세션 생성 + HUD URL 안내까지 처리합니다. 글로벌하게 쓰려면 `~/.claude/skills/` 로 심링크하세요:
+
+```bash
+ln -s "$(pwd)/.claude/skills/socratic-tutor" ~/.claude/skills/socratic-tutor
+```
+
+스킬은 *런처* 일 뿐 — 실제 대화·시각화는 HUD에서 진행됩니다.
+
 ### `AA --onboard`로 바로 쓰기
 
 프로젝트 내부의 `./AA`를 사용자 명령으로 등록하려면 아래를 실행하면 됩니다.

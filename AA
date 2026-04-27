@@ -10,6 +10,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import webbrowser
 from pathlib import Path
 
@@ -56,6 +57,11 @@ def parse_args() -> argparse.Namespace:
         "--print-install-snippet",
         action="store_true",
         help="Print the shell snippet for adding AA to your PATH.",
+    )
+    parser.add_argument(
+        "--upload",
+        metavar="FILE",
+        help="Upload a study file and jump straight into the learning HUD.",
     )
     return parser.parse_args()
 
@@ -138,9 +144,60 @@ def stop_process(proc: subprocess.Popen[str] | None) -> None:
         proc.kill()
 
 
-def onboard(no_browser: bool, frontend_only: bool, backend_only: bool) -> int:
+def upload_session(
+    file_path: Path, *, host: str = "127.0.0.1", port: int = 8000, timeout: float = 180.0
+) -> str:
+    """POST file to /api/sessions and return the new session_id."""
+    import json
+    import mimetypes
+    import urllib.request
+    import uuid
+
+    boundary = uuid.uuid4().hex
+    mime, _ = mimetypes.guess_type(file_path.name)
+    mime = mime or "application/octet-stream"
+
+    crlf = b"\r\n"
+    parts = [
+        f"--{boundary}".encode(),
+        f'Content-Disposition: form-data; name="file"; filename="{file_path.name}"'.encode(),
+        f"Content-Type: {mime}".encode(),
+        b"",
+        file_path.read_bytes(),
+        f"--{boundary}--".encode(),
+        b"",
+    ]
+    body = crlf.join(parts)
+
+    req = urllib.request.Request(
+        f"http://{host}:{port}/api/sessions",
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+    session_id = payload.get("session_id")
+    if not session_id:
+        raise OnboardError(f"Upload succeeded but session_id missing: {payload!r}")
+    return session_id
+
+
+def onboard(
+    no_browser: bool,
+    frontend_only: bool,
+    backend_only: bool,
+    upload: str | None = None,
+) -> int:
     if frontend_only and backend_only:
         raise OnboardError("Choose only one of --frontend-only or --backend-only.")
+    upload_path: Path | None = None
+    if upload:
+        if frontend_only or backend_only:
+            raise OnboardError("--upload requires both backend and frontend; remove --frontend-only/--backend-only.")
+        upload_path = Path(upload).expanduser().resolve()
+        if not upload_path.is_file():
+            raise OnboardError(f"Upload target not found: {upload_path}")
 
     python_bin = ensure_command("python3")
     npm_bin = ensure_command("npm")
@@ -176,14 +233,26 @@ def onboard(no_browser: bool, frontend_only: bool, backend_only: bool) -> int:
         frontend_proc = spawn([npm_bin, "run", "dev"])
         wait_for_port("127.0.0.1", 3000, timeout=30)
 
+    target_url = FRONTEND_URL
+    if upload_path is not None:
+        print(f"[AA] Uploading {upload_path.name}...")
+        try:
+            session_id = upload_session(upload_path)
+        except urllib.error.HTTPError as exc:
+            raise OnboardError(f"Upload failed ({exc.code}): {exc.read().decode('utf-8', 'replace')}")
+        except Exception as exc:
+            raise OnboardError(f"Upload failed: {exc}") from exc
+        print(f"[AA] Session created: {session_id}")
+        target_url = f"{FRONTEND_URL}/?session={session_id}"
+
     if not no_browser and not backend_only:
-        webbrowser.open(FRONTEND_URL)
+        webbrowser.open(target_url)
 
     print("Academic Architect is running.")
     if not frontend_only:
         print(f"Backend:  {BACKEND_URL}")
     if not backend_only:
-        print(f"Frontend: {FRONTEND_URL}")
+        print(f"Frontend: {target_url}")
     print("Press Ctrl+C to stop.")
 
     processes = [proc for proc in (backend_proc, frontend_proc) if proc]
@@ -231,7 +300,12 @@ def main() -> int:
         return 0
 
     try:
-        return onboard(args.no_browser, args.frontend_only, args.backend_only)
+        return onboard(
+            args.no_browser,
+            args.frontend_only,
+            args.backend_only,
+            upload=args.upload,
+        )
     except OnboardError as exc:
         print(f"[AA] {exc}", file=sys.stderr)
         return 1
