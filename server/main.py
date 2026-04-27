@@ -75,8 +75,23 @@ async def create_session(file: UploadFile):
     if not file.filename:
         raise HTTPException(400, "파일명이 없습니다")
 
-    content = await file.read()
-    path = await save_upload(file.filename, content)
+    # 본문을 다 읽기 *전에* 사이즈로 거부 — 거대한 업로드의 OOM 방지.
+    from server.script_loader import MAX_FILE_SIZE
+    if file.size is not None and file.size > MAX_FILE_SIZE:
+        raise HTTPException(
+            413,
+            f"파일 크기 초과: {file.size / 1024 / 1024:.1f}MB (최대 {MAX_FILE_SIZE // (1024*1024)}MB)",
+        )
+
+    try:
+        content = await file.read()
+    except Exception as exc:
+        raise HTTPException(400, f"파일 읽기 실패: {exc}")
+
+    try:
+        path = await save_upload(file.filename, content)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     script_text = read_script(path)
 
     session = Session(

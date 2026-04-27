@@ -17,6 +17,28 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {".txt", ".md", ".srt"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+_MAX_FILENAME_BYTES = 200
+
+
+def _sanitize_filename(filename: str) -> str:
+    """클라이언트가 제공한 파일명에서 traversal/제어문자 제거.
+
+    `Path(...).name` 으로 디렉토리 컴포넌트(`../`, `subdir/`)를 제거하고,
+    null byte와 경로 분리자를 거부한다. 너무 긴 이름은 확장자를 보존하며 잘라낸다.
+    """
+    if not filename:
+        raise ValueError("파일명이 비어 있습니다")
+    if "\x00" in filename:
+        raise ValueError("파일명에 null byte 가 포함되어 있습니다")
+    # `Path("../../foo.txt").name` == "foo.txt" 이므로 traversal 컴포넌트가 제거됨.
+    name = Path(filename).name
+    if not name or name in (".", ".."):
+        raise ValueError(f"올바르지 않은 파일명: {filename!r}")
+    if len(name.encode("utf-8")) > _MAX_FILENAME_BYTES:
+        ext = Path(name).suffix
+        stem = Path(name).stem[:120]
+        name = f"{stem}{ext}"
+    return name
 
 
 def validate_file(filename: str, size: int) -> None:
@@ -32,8 +54,15 @@ def validate_file(filename: str, size: int) -> None:
 
 async def save_upload(filename: str, content: bytes) -> Path:
     """업로드 파일을 data/uploads/ 에 저장하고 경로 반환."""
-    validate_file(filename, len(content))
-    dest = settings.UPLOADS_DIR / filename
+    safe = _sanitize_filename(filename)
+    validate_file(safe, len(content))
+    dest = settings.UPLOADS_DIR / safe
+
+    # Defense-in-depth: 최종 경로가 정말 UPLOADS_DIR 내부인지 한 번 더 확인.
+    uploads = settings.UPLOADS_DIR.resolve()
+    if dest.resolve().parent != uploads:
+        raise ValueError(f"경로가 업로드 디렉토리를 벗어났습니다: {filename!r}")
+
     dest.write_bytes(content)
     logger.info("Saved upload: %s (%d bytes)", dest, len(content))
     return dest
